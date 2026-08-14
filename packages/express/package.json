@@ -1,6 +1,6 @@
 {
   "name": "@schemaroute/express",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Express adapter for SchemaRoute — auto-generate CRUD routes from a Mongoose schema",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

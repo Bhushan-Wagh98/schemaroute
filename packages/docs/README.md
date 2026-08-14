@@ -103,9 +103,13 @@ PUT    /products/{id}      — Update a product by ID
 DELETE /products/{id}      — Delete a product by ID
 ```
 
+### Custom routes
+
+Custom routes defined in `config.custom` are also included in the spec. The summary is derived from the path segment (e.g. `/products/out-of-stock` → `Get out of stock products`).
+
 ### Query parameters on `GET /products`
 
-All filter, sort, search, pagination, fields, and populate params are documented automatically:
+All filter, sort, search, pagination, fields, and populate params are documented automatically based on the resource config:
 
 ```
 ?status=active
@@ -124,16 +128,28 @@ All filter, sort, search, pagination, fields, and populate params are documented
   "Product": {
     "type": "object",
     "properties": {
-      "_id":    { "type": "string" },
-      "name":   { "type": "string" },
-      "price":  { "type": "number", "minimum": 0 },
-      "stock":  { "type": "number", "minimum": 0 },
-      "status": { "type": "string", "enum": ["active", "inactive"] }
+      "_id":       { "type": "string", "description": "MongoDB ObjectId" },
+      "name":      { "type": "string" },
+      "price":     { "type": "number", "minimum": 0 },
+      "stock":     { "type": "number", "minimum": 0 },
+      "status":    { "type": "string", "enum": ["active", "inactive"] },
+      "createdAt": { "type": "string", "format": "date-time" },
+      "updatedAt": { "type": "string", "format": "date-time" }
     },
     "required": ["name", "price", "stock"]
   }
 }
 ```
+
+`createdAt` and `updatedAt` are always included in the schema component.
+
+### Model naming
+
+The schema component name is derived from the plural resource name using the same singularisation rules as the Express adapter:
+
+- `categories` → `Category`
+- `products` → `Product`
+- `users` → `User`
 
 ### Response envelopes
 
@@ -153,7 +169,7 @@ All responses are documented with the standard SchemaRoute envelope:
 |---|---|
 | `200` | Success |
 | `201` | Created |
-| `400` | Bad request |
+| `400` | Bad request / invalid id |
 | `404` | Not found |
 | `422` | Validation failed |
 | `500` | Internal server error |
@@ -166,6 +182,14 @@ If you need the raw JSON spec (e.g. for Postman or Redoc):
 
 ```js
 app.get('/openapi.json', (req, res) => res.json(spec))
+```
+
+---
+
+## Types
+
+```ts
+import type { DocsOptions, OpenAPISpec } from '@schemaroute/docs'
 ```
 
 ---

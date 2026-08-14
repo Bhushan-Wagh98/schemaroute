@@ -31,7 +31,10 @@ function validateField(
   const { name, type, required, min, max, minlength, maxlength, enum: allowedValues } = field
 
   // ── Required check ────────────────────────────────────────────────────────
-  if (required && (value === undefined || value === null || value === '')) {
+  // Treat only undefined and null as missing. Empty string ('') is a valid
+  // submitted value — if the schema has minlength it will be caught below;
+  // if not, Mongoose's own runValidators handles it at the DB layer.
+  if (required && (value === undefined || value === null)) {
     errors.push({ field: name, message: `${name} is required` })
     return
   }
@@ -77,10 +80,20 @@ function validateField(
         errors.push({ field: name, message: `${name} must be a valid date` })
       break
     }
+
+    case 'objectid': {
+      if (!/^[a-f\d]{24}$/i.test(String(value)))
+        errors.push({ field: name, message: `${name} must be a valid ObjectId` })
+      break
+    }
   }
 
   // ── Enum check ────────────────────────────────────────────────────────────
-  if (allowedValues && !allowedValues.includes(value))
+  // Only apply enum validation to string and number fields — the only types
+  // where Mongoose enum constraints are meaningful. All other types (array,
+  // object, date, objectid, boolean, mixed) are skipped to avoid false positives
+  // from reference-equality mismatches on non-primitive values.
+  if (allowedValues && (type === 'string' || type === 'number') && !allowedValues.includes(value))
     errors.push({ field: name, message: `${name} must be one of: ${allowedValues.join(', ')}` })
 }
 

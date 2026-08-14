@@ -46,8 +46,10 @@ export function resolveQuery(
 ): ResolvedQuery {
   const schemaFieldNames = new Set(parsedSchema.fields.map(field => field.name))
   const excludedFields   = new Set(['__v', ...(options.exclude ?? [])])
+  const queryErrors: string[] = []
 
-  const mongoFilter = buildFieldFilter(queryParams, schemaFieldNames, RESERVED_QUERY_KEYS)
+  const { filter: mongoFilter, errors: filterErrors } = buildFieldFilter(queryParams, schemaFieldNames, RESERVED_QUERY_KEYS, parsedSchema.fields)
+  queryErrors.push(...filterErrors)
 
   if (options.search) {
     applySearchFilter(
@@ -60,14 +62,20 @@ export function resolveQuery(
     )
   }
 
-  const mongoSort       = buildSortObject(queryParams, schemaFieldNames, options.sort)
-  const mongoProjection = buildProjection(
+  // Bug 4: reject unknown sort fields
+  if (queryParams.sort && !schemaFieldNames.has(queryParams.sort)) {
+    queryErrors.push(`'${queryParams.sort}' is not a valid sort field`)
+  }
+
+  const mongoSort             = buildSortObject(queryParams, schemaFieldNames, options.sort)
+  const { projection: mongoProjection, error: projectionError } = buildProjection(
     queryParams,
     schemaFieldNames,
     excludedFields,
     options.select,
     options.fields
   )
+  if (projectionError) queryErrors.push(projectionError)
   const populateFields  = resolvePopulateFields(
     queryParams,
     options.populate ?? [],
@@ -75,12 +83,19 @@ export function resolveQuery(
   )
   const paginationState = resolvePagination(queryParams, options.pagination)
 
+  // Collect pagination errors (returned as error sentinel from resolvePagination)
+  const paginationError = (paginationState as unknown as { type: 'error', message: string } | null)
+  if (paginationError?.type === 'error') {
+    queryErrors.push(paginationError.message)
+  }
+
   return {
     filter:     mongoFilter,
     sort:       mongoSort,
     projection: mongoProjection,
     populate:   populateFields,
-    pagination: paginationState,
+    pagination: paginationError?.type === 'error' ? null : paginationState,
+    errors:     queryErrors,
   }
 }
 

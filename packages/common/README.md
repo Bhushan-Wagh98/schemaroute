@@ -12,17 +12,41 @@ You do not need to install this package directly. It is automatically installed 
 
 All shared interfaces and types used across the SchemaRoute ecosystem:
 
+**Instances & Config**
 - `SchemaRouteInstance` — return value of `createAPI` / `createSchemaRoute`
 - `ResourceConfig` — full config object passed to `createAPI`
-- `ParsedSchema`, `ParsedField`, `FieldType` — normalised schema representation
-- `RouteDefinition` — framework-agnostic route descriptor
-- `RequestContext` — hook context (headers, query, params, user)
-- `Hooks` — `beforeCreate`, `afterCreate`, `beforeUpdate`, etc.
-- `ResponseMeta` — pagination metadata in list responses
-- `ValidationError` — field-level validation error shape
-- `PaginationMode`, `SearchMode` — config union types
 - `GetAllRouteConfig`, `GetOneRouteConfig`, `CreateRouteConfig`, `UpdateRouteConfig`, `DeleteRouteConfig`
-- `CustomRoute`, `MiddlewareFn`, `RateLimitOption`, `BuiltInRateLimit`
+- `CustomRoute`
+
+**Schema**
+- `ParsedSchema`, `ParsedField`, `FieldType` — normalised schema representation
+
+**Routes**
+- `RouteDefinition` — framework-agnostic route descriptor
+- `HttpMethod` — `'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'`
+
+**Hooks & Context**
+- `Hooks` — `beforeCreate`, `afterCreate`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete`
+- `RequestContext` — hook context (headers, query, params, user)
+
+**Response**
+- `ResponseMeta` — pagination metadata in list responses
+- `DefaultResponse` — `{ success, data, meta? }`
+- `ErrorResponse` — `{ success: false, error, details? }`
+- `ResponseShapeFn` — custom response envelope function type
+- `TransformFn` — per-document transform function type
+
+**Validation**
+- `ValidationError` — `{ field, message }`
+
+**Middleware & Rate Limiting**
+- `MiddlewareFn` — `(req, res, next) => void`
+- `RateLimitOption` — `BuiltInRateLimit | MiddlewareFn[]`
+- `BuiltInRateLimit` — `{ max: number, window: string }`
+
+**Pagination & Search**
+- `PaginationMode` — `'page' | 'cursor' | 'both' | false`
+- `SearchMode` — `'all-fields' | 'single-field' | false`
 
 ---
 
@@ -41,9 +65,29 @@ import type {
   SchemaRouteInstance,
   ResourceConfig,
   ParsedSchema,
-  ResponseMeta,
-  ValidationError,
+  ParsedField,
+  FieldType,
+  RouteDefinition,
   RequestContext,
+  Hooks,
+  ResponseMeta,
+  DefaultResponse,
+  ErrorResponse,
+  ValidationError,
+  TransformFn,
+  ResponseShapeFn,
+  MiddlewareFn,
+  RateLimitOption,
+  BuiltInRateLimit,
+  PaginationMode,
+  SearchMode,
+  HttpMethod,
+  GetAllRouteConfig,
+  GetOneRouteConfig,
+  CreateRouteConfig,
+  UpdateRouteConfig,
+  DeleteRouteConfig,
+  CustomRoute,
 } from '@schemaroute/common'
 ```
 

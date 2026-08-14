@@ -42,6 +42,7 @@ const instance = createSchemaRoute(ProductSchema, 'products', {
 // instance.parsedSchema  → ParsedSchema
 // instance.resourceName  → 'products'
 // instance.config        → ResourceConfig
+// instance.schema        → Mongoose Schema
 ```
 
 ---
@@ -59,9 +60,29 @@ const parsed = parseSchema(ProductSchema)
 // parsed.refFields     → ['category']
 ```
 
-Supported field types: `string`, `number`, `boolean`, `date`, `objectid`, `array`, `mixed`.
+Supported field types: `string`, `number`, `boolean`, `date`, `objectid`, `array`, `object`, `mixed`.
 
 Supported constraints: `required`, `min`, `max`, `minlength`, `maxlength`, `enum`, `ref`.
+
+---
+
+### `buildRoutes(resourceName, config)`
+
+Builds the array of framework-agnostic `RouteDefinition` objects from a `ResourceConfig`. Used internally by `createSchemaRoute`. Useful when building a custom adapter.
+
+```ts
+import { buildRoutes } from '@schemaroute/core'
+
+const routes = buildRoutes('products', {
+  routes: {
+    create: { validation: true, middleware: [requireAuth] },
+    delete: { enabled: false },
+  },
+})
+// routes → RouteDefinition[]
+```
+
+Custom routes are appended last in the array but must be registered by the adapter **before** `/:id` routes to prevent named paths (e.g. `/products/active`) being caught by the id param.
 
 ---
 
@@ -79,7 +100,7 @@ const errors = validate({ name: '', price: 'abc' }, parsedSchema)
 // ]
 ```
 
-Validates: `required`, `type`, `min`, `max`, `minlength`, `maxlength`, `enum`.
+Validates: `required`, `type`, `min`, `max`, `minlength`, `maxlength`, `enum`, `objectid` format.
 
 ---
 
@@ -104,7 +125,7 @@ const resolved = resolveQuery(req.query, parsedSchema, {
 // resolved.projection  → { name: 1, price: 1 }
 // resolved.populate    → ['category']
 // resolved.pagination  → { type: 'page', page: 1, limit: 10, skip: 0 }
-// resolved.search      → { $or: [{ name: /laptop/i }, { description: /laptop/i }] }
+// resolved.errors      → []  — non-empty means the query params were invalid (return 400)
 ```
 
 ---
@@ -133,12 +154,13 @@ When `resolveQuery` is used, the following query params are supported on list en
 
 | Param | Example | Description |
 |---|---|---|
-| Field filter | `?status=active` | Filter by any schema field |
-| `sort` | `?sort=price&order=desc` | Sort by field (`asc` / `desc`) |
-| `fields` | `?fields=name,price` | Select specific fields |
-| `search` | `?search=laptop` | Search across all string fields |
+| Field filter | `?status=active` | Filter by any schema field. Returns `400` if value is not a valid enum member |
+| `sort` | `?sort=price&order=desc` | Sort by field (`asc` / `desc`). Returns `400` for unknown field names |
+| `fields` | `?fields=name,price` | Select specific fields. Returns `400` for unknown field names. Ref fields not listed are not populated |
+| `search` | `?search=laptop` | Search across all string fields. Empty/whitespace values are ignored |
 | `searchField` | `?searchField=name` | Restrict search to a specific field |
-| `page` | `?page=2&limit=10` | Page-based pagination |
+| `page` | `?page=2&limit=10` | Page-based pagination. Returns `400` if `page < 1` |
+| `limit` | `?limit=10` | Page size. Returns `400` if non-numeric or non-positive. Clamped to max `100` |
 | `cursor` | `?cursor=<id>&limit=10` | Cursor-based pagination |
 | `populate` | `?populate=category` | Populate ref fields |
 
@@ -155,6 +177,7 @@ interface ResourceConfig {
   select?:      string[]
   transform?:   (doc: any) => any
   response?:    (data: any, meta: any) => any
+  debug?:       boolean   // enable diagnostic logging (default: false)
   routes?: {
     getAll?:  GetAllRouteConfig
     getOne?:  GetOneRouteConfig
@@ -175,14 +198,48 @@ import type {
   ResourceConfig,
   ParsedSchema,
   ParsedField,
+  FieldType,
   RouteDefinition,
   SchemaRouteInstance,
   RequestContext,
   ValidationError,
   ResolvedQuery,
+  QueryParams,
+  PagePagination,
+  CursorPagination,
   PaginationMode,
   SearchMode,
+  TransformFn,
+  ResponseShapeFn,
+  ResponseMeta,
+  DefaultResponse,
+  ErrorResponse,
+  Hooks,
+  GetAllRouteConfig,
+  GetOneRouteConfig,
+  CreateRouteConfig,
+  UpdateRouteConfig,
+  DeleteRouteConfig,
+  CustomRoute,
+  MiddlewareFn,
+  RateLimitOption,
+  BuiltInRateLimit,
+  HttpMethod,
 } from '@schemaroute/core'
+```
+
+### FieldType
+
+```ts
+type FieldType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'date'
+  | 'objectid'
+  | 'array'
+  | 'object'    // embedded sub-document
+  | 'mixed'
 ```
 
 ---
@@ -192,8 +249,8 @@ import type {
 `@schemaroute/core` is designed to be framework-agnostic. To build an adapter:
 
 1. Call `createSchemaRoute(schema, resourceName, config)` to get the instance
-2. Iterate `instance.routes` — each `RouteDefinition` has `method`, `path`, `type`, and resolved config
-3. Register each route on your framework
+2. Iterate `instance.routes` — each `RouteDefinition` has `method`, `path`, `operation`, and resolved config
+3. Register custom routes **before** CRUD routes to prevent `/:id` catching named paths
 4. In each handler, call `resolveQuery`, run the Mongoose query, call `buildMeta`, and send the response
 
 See [`@schemaroute/express`](https://www.npmjs.com/package/@schemaroute/express) as a reference implementation.

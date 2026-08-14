@@ -14,7 +14,50 @@ npm install @schemaroute/core @schemaroute/express
 
 ---
 
-## Quick Start
+## How the DB connection works
+
+SchemaRoute **does not connect to MongoDB**. It never reads `MONGO_URI` or calls `mongoose.connect()`. That is entirely your responsibility.
+
+What SchemaRoute does:
+1. Takes the `mongoose` instance you pass in (5th argument)
+2. Registers a Mongoose model on your **already-open** connection
+3. At request time, runs queries on that connection
+
+Two rules to follow:
+
+**1. Always call `createAPI` after `mongoose.connect()` resolves**
+
+```js
+// ✅ correct
+mongoose.connect(process.env.MONGO_URI).then(() => {
+  createAPI(app, ProductSchema, 'products', {}, mongoose)
+  app.listen(3000)
+})
+
+// ❌ wrong — throws: mongoose connection is "disconnected"
+createAPI(app, ProductSchema, 'products', {}, mongoose)
+mongoose.connect(process.env.MONGO_URI)
+```
+
+**2. Always pass your mongoose instance as the 5th argument**
+
+```js
+// ✅ correct — SchemaRoute uses your connected instance
+createAPI(app, ProductSchema, 'products', {}, mongoose)
+
+// ❌ wrong — SchemaRoute falls back to require('mongoose') which may
+//            be a different instance with no active connection
+createAPI(app, ProductSchema, 'products', {})
+```
+
+If you call `createAPI` before connecting, SchemaRoute throws a clear error:
+
+```
+[schemaroute] createAPI('products') was called while mongoose connection is "disconnected".
+You must call createAPI inside the .then() callback of mongoose.connect(), after the connection is fully open.
+```
+
+---
 
 ```js
 import express  from 'express'
@@ -64,6 +107,37 @@ Returns a `SchemaRouteInstance` — pass it to `@schemaroute/docs` or `@schemaro
 
 > Always call `createAPI` inside the `.then()` callback of `mongoose.connect()` so models bind to the active connection.
 
+### Model naming
+
+`createAPI` derives the Mongoose model name from the plural resource name using these rules:
+
+- `categories` → `Category`
+- `products` → `Product`
+- `users` → `User`
+
+This matches Mongoose's `ref` convention so cross-model `populate` works correctly.
+
+### JSON error handling
+
+`createAPI` automatically registers a JSON parse error handler on the Express app the first time it is called. Malformed request bodies return `400 { success: false, error: 'Invalid JSON body' }` instead of Express's default HTML error page. This handler is registered only once per app instance.
+
+If you need explicit control over registration order, call `registerErrorHandlers` before any `createAPI` calls:
+
+```js
+import { registerErrorHandlers, createAPI } from '@schemaroute/express'
+
+const app = express()
+app.use(express.json())
+registerErrorHandlers(app)  // explicit — registers before any routes
+
+mongoose.connect(process.env.MONGO_URI).then(() => {
+  createAPI(app, ProductSchema, 'products', {}, mongoose)
+  app.listen(3000)
+})
+```
+
+Safe to call multiple times — registers only once per app instance.
+
 ---
 
 ## Full Config Example
@@ -76,6 +150,8 @@ createAPI(app, ProductSchema, 'products', {
   search:     'all-fields',
   populate:   ['category'],
   exclude:    ['__v'],
+  transform:  (doc) => ({ id: doc._id, ...doc }),  // reshape every response doc
+  debug:      false,  // set true to enable diagnostic logging
 
   routes: {
 
@@ -174,8 +250,8 @@ createAPI(app, ProductSchema, 'products', {
 | `middleware` | `MiddlewareFn[]` | `[]` | Middleware chain run before the handler |
 | `validation` | `boolean` | `false` | Auto-validate request body against schema |
 | `rateLimit` | `object \| array` | — | Built-in limiter or your own middleware |
-| `sort` | `boolean` | `false` | Allow `?sort=field&order=asc\|desc` |
-| `fields` | `boolean` | `false` | Allow `?fields=name,price` field selection |
+| `sort` | `boolean` | `false` | Allow `?sort=field&order=asc\|desc` (getAll only) |
+| `fields` | `boolean` | `false` | Allow `?fields=name,price` field selection (getAll only) |
 | `populate` | `string[]` | — | Ref fields to populate |
 | `exclude` | `string[]` | — | Fields to strip from the response |
 | `select` | `string[]` | — | Fields to include in the response |
@@ -185,7 +261,7 @@ createAPI(app, ProductSchema, 'products', {
 
 ## Hooks
 
-All hooks receive `(data/doc, ctx)` where `ctx` is a `RequestContext` snapshot containing `req.headers`, `req.params`, `req.query`, and any user context.
+All hooks receive `(data/doc, ctx)` where `ctx` is a `RequestContext` snapshot containing `req.headers`, `req.params`, `req.query`, and any user context set by auth middleware on `req.user`.
 
 | Hook | Runs | Can modify data |
 |---|---|---|
@@ -205,6 +281,12 @@ beforeCreate: async (data, ctx) => {
 }
 ```
 
+Hook execution order for `create`:
+1. `beforeCreate` — runs **before** validation so computed fields are present when required-field checks run
+2. Schema validation (when `validation: true`)
+3. Persist to MongoDB
+4. `afterCreate` — receives the saved document for side-effects
+
 ---
 
 ## Pagination
@@ -215,6 +297,8 @@ beforeCreate: async (data, ctx) => {
 | `'cursor'` | `?cursor=<id>&limit=10` | Cursor-based (efficient for large datasets) |
 | `'both'` | either | Cursor when `?cursor` present, page otherwise |
 | `false` | — | Disabled — returns all matching documents |
+
+Default limit: `10`. Maximum limit: `100` (clamped automatically).
 
 ---
 
@@ -231,7 +315,7 @@ beforeCreate: async (data, ctx) => {
 ## Rate Limiting
 
 ```js
-// built-in sliding window
+// built-in sliding window (in-memory, single-process)
 rateLimit: { max: 100, window: '1m' }
 rateLimit: { max: 10,  window: '30s' }
 rateLimit: { max: 5,   window: '1h' }
@@ -239,6 +323,8 @@ rateLimit: { max: 5,   window: '1h' }
 // bring your own middleware
 rateLimit: [expressRateLimit({ windowMs: 60_000, max: 100 })]
 ```
+
+> The built-in rate limiter is in-memory and per-process. For multi-instance or distributed deployments, use the array syntax to bring a Redis-backed solution (e.g. `rate-limiter-flexible`).
 
 ---
 
@@ -268,14 +354,17 @@ Every `GET /resource` endpoint supports:
 
 | Param | Example | Description |
 |---|---|---|
-| Field filter | `?status=active&category=abc` | Filter by any schema field |
-| `sort` | `?sort=price&order=desc` | Sort by field |
-| `fields` | `?fields=name,price` | Select specific fields |
-| `search` | `?search=laptop` | Full-text search |
+| Field filter | `?status=active&category=abc` | Filter by any schema field. Returns `400` if value is not a valid enum member |
+| `sort` | `?sort=price&order=desc` | Sort by field. Returns `400` for unknown field names |
+| `fields` | `?fields=name,price` | Select specific fields. Returns `400` for unknown field names. Ref fields not listed are not populated |
+| `search` | `?search=laptop` | Full-text search. Empty/whitespace values are ignored |
 | `searchField` | `?searchField=name` | Restrict search to one field |
-| `page` | `?page=2&limit=10` | Page-based pagination |
+| `page` | `?page=2&limit=10` | Page-based pagination. Returns `400` if `page < 1` |
+| `limit` | `?limit=10` | Page size. Returns `400` if non-numeric or non-positive. Clamped to max `100` |
 | `cursor` | `?cursor=<id>&limit=10` | Cursor-based pagination |
 | `populate` | `?populate=category` | Populate ref fields |
+
+Field filter values are automatically coerced to their schema type — `?price=99` produces `{ price: 99 }` (number), not `{ price: '99' }` (string).
 
 ---
 
@@ -283,10 +372,12 @@ Every `GET /resource` endpoint supports:
 
 | Status | Cause |
 |---|---|
-| `400` | Invalid MongoDB ObjectId format |
+| `400` | Invalid MongoDB ObjectId format in URL param |
 | `400` | Malformed JSON request body |
+| `400` | Invalid query param — unknown sort field, unknown `?fields=` field, invalid enum filter value, `page < 1`, non-numeric/non-positive `limit` |
 | `404` | Document not found |
-| `422` | Validation failed |
+| `422` | Validation failed — required field missing, type error, constraint violation, invalid ObjectId in body, ref points to non-existent document |
+| `429` | Rate limit exceeded |
 | `500` | Internal server error |
 
 ```json
@@ -298,6 +389,16 @@ Every `GET /resource` endpoint supports:
     { "field": "price", "message": "price must be a number" }
   ]
 }
+```
+
+---
+
+## Debug Logging
+
+Pass `debug: true` in the resource config to enable diagnostic output from SchemaRoute. Logs model registration and handler errors to stdout. Silent by default — libraries should never log unconditionally.
+
+```js
+createAPI(app, ProductSchema, 'products', { debug: true }, mongoose)
 ```
 
 ---

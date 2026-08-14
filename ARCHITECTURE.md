@@ -39,6 +39,7 @@ Mongoose Schema
 ```
 schemaroute-lib/
 ├── packages/
+│   ├── common/           ← shared TypeScript types (zero runtime deps)
 │   ├── core/             ← schema parser, route builder, validation logic (framework-agnostic)
 │   ├── express/          ← express adapter
 │   ├── docs/             ← OpenAPI 3.0 spec generator + Swagger UI
@@ -50,10 +51,16 @@ schemaroute-lib/
 └── ARCHITECTURE.md
 ```
 
-### Future Packages (to be added)
-- `@schemaroute/fastify`
-- `@schemaroute/koa`
-- `@schemaroute/hono`
+### Package dependency graph
+
+```
+schemaroute (umbrella)
+  ├── @schemaroute/common   ← types only, no deps
+  ├── @schemaroute/core     ← depends on common
+  ├── @schemaroute/express  ← depends on core
+  ├── @schemaroute/docs     ← depends on common
+  └── @schemaroute/sdk      ← depends on common
+```
 
 ---
 
@@ -241,6 +248,8 @@ createAPI(app, UserSchema, 'users', {
 | `middleware` | `array` | Any middleware, user provides their own |
 | `validation` | `boolean` | Auto-validate request body against schema |
 | `rateLimit` | `object \| array` | `{ max, window }` or bring your own middleware |
+| `transform` | `TransformFn` | Reshape each document before sending |
+| `debug` | `boolean` | Enable diagnostic logging (resource config only) |
 
 ---
 
@@ -398,12 +407,49 @@ custom: [
 - [x] Hooks (before/after per operation)
 - [x] Custom routes
 - [x] Response shape (default + customizable)
+- [x] Document transform (per-resource + per-route)
 - [x] Rate limiting (built-in + bring your own)
 - [x] Standard error handling
 - [x] Express adapter
 - [x] OpenAPI 3.0 spec generation (`@schemaroute/docs`)
 - [x] Swagger UI mount (`/api-docs`)
 - [x] TypeScript client SDK (`@schemaroute/sdk`)
+- [x] Shared types package (`@schemaroute/common`)
+- [x] Debug logging (opt-in, silent by default)
+
+---
+
+## Engineering Best Practices
+
+### What's done well
+
+- **Silent by default logging** — `logger.ts` gates all output behind `debug: true`. Libraries must never log unconditionally.
+- **Lazy model resolution** — `resolveModel()` is called at request time, not at registration time, so the active connection is always used.
+- **Single JSON error handler** — the malformed-body handler is registered once per app instance via a `WeakSet` guard, preventing duplicate middleware.
+- **Type coercion in filters** — `?price=99` is coerced to `{ price: 99 }` (number) before the Mongoose query, preventing silent type mismatches.
+- **Custom routes registered first** — prevents Express matching `/products/active` as `/products/:id`.
+- **`beforeCreate` runs before validation** — allows hooks to inject computed fields (e.g. slug) before required-field checks run.
+- **Cursor pagination fetches `limit + 1`** — determines `hasNextPage` without a separate count query.
+- **`@schemaroute/common` has zero runtime deps** — types-only package keeps the dependency graph clean.
+
+### Known trade-offs and limitations
+
+| Area | Trade-off |
+|---|---|
+| **Rate limiter** | Built-in is in-memory and single-process. For multi-instance or distributed deployments, use the `rateLimit: [middleware]` array syntax with a Redis-backed solution (e.g. `rate-limiter-flexible`). |
+| **`MiddlewareFn` uses `any`** | Intentional — keeps `@schemaroute/common` framework-agnostic without importing Express types. Adapters cast to `RequestHandler` at the boundary. |
+| **Mongoose fallback** | If `mongoose` is not passed as the 5th argument, `createAPI` falls back to `require('mongoose')`. This may be a different instance than the one you connected with. Always pass your instance explicitly. |
+| **Update validation** | `validation: true` on `update` runs the full schema validation (all required fields). For partial updates where only some fields are sent, consider using `beforeUpdate` to fill defaults or disable validation and rely on Mongoose's `runValidators`. |
+| **`object` FieldType** | Embedded sub-documents are parsed as `'object'` type. The validator does not recurse into nested schemas — only top-level fields are validated. |
+
+### Future adapter guidance
+
+When building a new framework adapter (e.g. `@schemaroute/fastify`):
+1. Import `createSchemaRoute` from `@schemaroute/core` — do not duplicate schema parsing
+2. Register custom routes **before** `/:id` routes
+3. Call `resolveModel()` lazily at request time
+4. Use `buildRequestContext` pattern to keep hooks framework-agnostic
+5. Register the JSON parse error handler once per app instance
 
 ---
 

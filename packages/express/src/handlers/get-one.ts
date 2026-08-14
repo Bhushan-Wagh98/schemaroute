@@ -9,8 +9,8 @@ import type { Request, Response } from 'express'
 import type { Model } from 'mongoose'
 import type { ParsedSchema, ResourceConfig, GetOneRouteConfig } from '@schemaroute/core'
 import { isValidMongoObjectId, stripExcludedFields } from '../db/document'
-import { sendSuccessResponse, sendErrorResponse } from '../http/response'
-import { logError } from '../logger'
+import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
+import type { Logger } from '../logger'
 
 /**
  * Creates the `GET /:resource/:id` Express handler.
@@ -24,7 +24,8 @@ export function makeGetOneHandler(
   resolveModel:    () => Model<unknown>,
   _parsedSchema:   ParsedSchema,
   routeConfig:     GetOneRouteConfig,
-  resourceConfig:  ResourceConfig
+  resourceConfig:  ResourceConfig,
+  logger:          Logger
 ) {
   return async (expressRequest: Request, expressResponse: Response) => {
     try {
@@ -84,8 +85,10 @@ export function makeGetOneHandler(
 
       sendSuccessResponse(expressResponse, responseData, {}, resourceConfig.response)
     } catch (unexpectedError) {
-      logError('getOne error:', unexpectedError)
-      sendErrorResponse(expressResponse, 500, 'Internal server error')
+      logger.logError('getOne error:', unexpectedError)
+      const status = isDisconnectedError(unexpectedError) ? 503 : 500
+      const message = status === 503 ? 'Service unavailable — database connection lost' : 'Internal server error'
+      sendErrorResponse(expressResponse, status, message)
     }
   }
 }

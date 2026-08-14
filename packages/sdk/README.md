@@ -69,7 +69,7 @@ Fetches a list of documents. Supports all query options.
 
 ```ts
 const { data, meta } = await api.products.getAll({
-  filter:   { status: 'active' },    // filter by any schema field
+  filter:   { status: 'active' },    // filter by any schema field — spread into query string
   sort:     'price',
   order:    'asc',
   fields:   'name,price,stock',      // field selection
@@ -82,6 +82,8 @@ const { data, meta } = await api.products.getAll({
 // data → Product[]
 // meta → { page, limit, total, totalPages }
 ```
+
+`filter` fields are spread directly into the query string alongside the reserved params. For example `{ filter: { status: 'active' } }` produces `?status=active`.
 
 ### `getOne(id, params?)`
 
@@ -141,6 +143,7 @@ try {
     console.log(err.status)   // 422
     console.log(err.error)    // 'Validation failed'
     console.log(err.details)  // [{ field: 'name', message: 'name is required' }]
+    console.log(err.message)  // '[SchemaRoute SDK] 422: Validation failed'
   }
 }
 ```
@@ -150,6 +153,9 @@ try {
 | `err.status` | `number` | HTTP status code |
 | `err.error` | `string` | Server error message |
 | `err.details` | `array \| undefined` | Validation errors (422 only) |
+| `err.message` | `string` | Formatted error string: `[SchemaRoute SDK] <status>: <error>` |
+
+Non-JSON responses (e.g. 502 HTML error pages from a proxy) are also caught and wrapped in `SDKError`.
 
 ---
 
@@ -186,6 +192,21 @@ import type {
   DeleteResponse,
   ResourceClient,
 } from '@schemaroute/sdk'
+
+import { SDKError } from '@schemaroute/sdk'
+```
+
+### `SchemaRouteSDK<TResources>`
+
+The return type of `createSDK` when you want to type the full SDK object:
+
+```ts
+import type { SchemaRouteSDK } from '@schemaroute/sdk'
+
+type MyAPI = SchemaRouteSDK<{
+  products:   { name: string; price: number }
+  categories: { name: string; slug: string }
+}>
 ```
 
 ---

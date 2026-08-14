@@ -45,6 +45,24 @@ npm install @schemaroute/sdk    # TypeScript client SDK
 
 ---
 
+## How the DB connection works
+
+SchemaRoute does not connect to MongoDB. You connect, then pass your mongoose instance to `createAPI`:
+
+```js
+// ✅ correct
+mongoose.connect(process.env.MONGO_URI).then(() => {
+  createAPI(app, ProductSchema, 'products', {}, mongoose)  // ← pass mongoose
+  app.listen(3000)
+})
+
+// ❌ wrong — throws a clear error
+createAPI(app, ProductSchema, 'products', {}, mongoose)
+mongoose.connect(process.env.MONGO_URI)  // too late
+```
+
+---
+
 ## Quick Start
 
 ```js
@@ -88,12 +106,12 @@ Every `GET /resource` endpoint supports:
 
 | Query Param | Example | Description |
 |---|---|---|
-| Field filter | `?status=active&category=abc` | Filter by any schema field |
-| Sort | `?sort=price&order=desc` | Sort by any field |
-| Fields | `?fields=name,price,stock` | Select specific fields |
-| Search | `?search=laptop` | Search across all string fields |
+| Field filter | `?status=active&category=abc` | Filter by any schema field. Returns `400` if value is not a valid enum member |
+| Sort | `?sort=price&order=desc` | Sort by any field. Returns `400` for unknown field names |
+| Fields | `?fields=name,price,stock` | Select specific fields. Returns `400` for unknown field names. Ref fields not listed are not populated |
+| Search | `?search=laptop` | Search across all string fields. Empty/whitespace values are ignored |
 | Search field | `?search=laptop&searchField=name` | Search in a specific field |
-| Page pagination | `?page=2&limit=10` | Offset-based pagination |
+| Page pagination | `?page=2&limit=10` | Offset-based. Returns `400` if `page < 1` or `limit` is non-numeric/non-positive |
 | Cursor pagination | `?cursor=<id>&limit=10` | Cursor-based pagination |
 | Populate | `?populate=category` | Populate Mongoose refs |
 
@@ -137,6 +155,8 @@ createAPI(app, ProductSchema, 'products', {
   search:     'all-fields',
   populate:   ['category'],
   exclude:    ['__v'],
+  transform:  (doc) => ({ id: doc._id, ...doc }),  // reshape every response doc
+  debug:      false,  // set true to enable diagnostic logging
 
   routes: {
     getAll: {
@@ -246,6 +266,7 @@ await api.products.delete('abc123')
 | [`@schemaroute/express`](./packages/express) | [![npm](https://img.shields.io/npm/v/@schemaroute/express)](https://www.npmjs.com/package/@schemaroute/express) | Express adapter |
 | [`@schemaroute/docs`](./packages/docs) | [![npm](https://img.shields.io/npm/v/@schemaroute/docs)](https://www.npmjs.com/package/@schemaroute/docs) | OpenAPI 3.0 + Swagger UI |
 | [`@schemaroute/sdk`](./packages/sdk) | [![npm](https://img.shields.io/npm/v/@schemaroute/sdk)](https://www.npmjs.com/package/@schemaroute/sdk) | TypeScript client SDK |
+| [`@schemaroute/common`](./packages/common) | [![npm](https://img.shields.io/npm/v/@schemaroute/common)](https://www.npmjs.com/package/@schemaroute/common) | Shared types — zero runtime deps |
 
 ---
 
@@ -269,6 +290,7 @@ await api.products.delete('abc123')
 | OpenAPI docs | ❌ | ❌ | ✅ |
 | TypeScript SDK | ❌ | ❌ | ✅ |
 | Zero boilerplate | ⚠️ | ❌ | ✅ |
+| Debug logging | ❌ | ❌ | ✅ |
 
 ---
 
@@ -281,6 +303,7 @@ schemaroute-lib/
 │   ├── express/        ← Express adapter
 │   ├── docs/           ← OpenAPI + Swagger UI
 │   ├── sdk/            ← TypeScript client SDK
+│   ├── common/         ← shared types (zero runtime deps)
 │   └── schemaroute/    ← umbrella package
 ├── apps/
 │   └── test-api/       ← local test server (not published)

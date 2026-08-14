@@ -257,16 +257,21 @@ function buildGetAllParameters(instance: SchemaRouteInstance): OpenAPIParameter[
   }
 
   // ── Pagination ────────────────────────────────────────────────────────────
-  if (paginationMode === 'page' || paginationMode === 'both') {
+  if (paginationMode === 'page') {
     params.push(
-      { name: 'page',  in: 'query', required: false, description: 'Page number (default: 1)',   schema: { type: 'number' } },
+      { name: 'page',  in: 'query', required: false, description: 'Page number (default: 1)',    schema: { type: 'number' } },
       { name: 'limit', in: 'query', required: false, description: 'Items per page (default: 10)', schema: { type: 'number' } }
     )
-  }
-  if (paginationMode === 'cursor' || paginationMode === 'both') {
+  } else if (paginationMode === 'cursor') {
     params.push(
       { name: 'cursor', in: 'query', required: false, description: 'Cursor value from previous page', schema: { type: 'string' } },
       { name: 'limit',  in: 'query', required: false, description: 'Items per page (default: 10)',    schema: { type: 'number' } }
+    )
+  } else if (paginationMode === 'both') {
+    params.push(
+      { name: 'page',   in: 'query', required: false, description: 'Page number (default: 1)',         schema: { type: 'number' } },
+      { name: 'cursor', in: 'query', required: false, description: 'Cursor value from previous page',  schema: { type: 'string' } },
+      { name: 'limit',  in: 'query', required: false, description: 'Items per page (default: 10)',     schema: { type: 'number' } }
     )
   }
 

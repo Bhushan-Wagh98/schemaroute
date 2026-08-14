@@ -34,8 +34,15 @@ export function stripExcludedFields(
     if (fieldValue && typeof fieldValue === 'object' && !Array.isArray(fieldValue)) {
       const nestedObject = fieldValue as Record<string, unknown>
 
-      // Raw ObjectId — serialise to string to avoid [Object object] in responses
-      if (nestedObject['_bsontype'] === 'ObjectId' || nestedObject['buffer'] !== undefined) {
+      // ObjectId detection: toHexString is the public BSON API present on all
+      // ObjectId instances across driver versions. The hex format check guards
+      // against false positives from unrelated objects that happen to have a
+      // toHexString method.
+      const candidate = nestedObject as unknown as { toHexString?: unknown }
+      if (
+        typeof candidate.toHexString === 'function' &&
+        isValidMongoObjectId(String(fieldValue))
+      ) {
         sanitisedDocument[fieldName] = String(fieldValue)
         continue
       }

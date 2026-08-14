@@ -1,6 +1,6 @@
 {
   "name": "schemaroute",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Auto-generate CRUD API routes from a Mongoose schema. Umbrella package for the SchemaRoute ecosystem.",
   "main": "index.js",
   "types": "index.d.ts",

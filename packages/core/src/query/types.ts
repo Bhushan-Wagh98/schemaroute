@@ -43,6 +43,8 @@ export interface ResolvedQuery {
   populate:   string[]
   /** Resolved pagination state, or `null` when pagination is disabled. */
   pagination: PagePagination | CursorPagination | null
+  /** Validation errors collected during query resolution. */
+  errors:     string[]
 }
 
 // ─── Pagination State ─────────────────────────────────────────────────────────

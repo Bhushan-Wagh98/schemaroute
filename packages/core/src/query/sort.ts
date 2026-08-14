@@ -33,6 +33,6 @@ export function buildSortObject(
     return { [requestedSortField]: sortDirection }
   }
 
-  // Default: newest documents first
-  return { createdAt: -1 }
+  // Default: newest documents first (only if schema has timestamps)
+  return schemaFieldNames.has('createdAt') ? { createdAt: -1 } : {}
 }

@@ -30,14 +30,17 @@ export function buildProjection(
   excludedFields:   Set<string>,
   selectFields?:    string[],
   isFieldsEnabled?: boolean
-): Record<string, 0 | 1> | null {
+): { projection: Record<string, 0 | 1> | null, error?: string } {
   const mongoProjection: Record<string, 0 | 1> = {}
 
   if (queryParams.fields && isFieldsEnabled !== false) {
     // Inclusion projection from ?fields= — only valid, non-excluded schema fields
     for (const rawFieldName of queryParams.fields.split(',')) {
       const trimmedFieldName = rawFieldName.trim()
-      if (schemaFieldNames.has(trimmedFieldName) && !excludedFields.has(trimmedFieldName)) {
+      if (!schemaFieldNames.has(trimmedFieldName)) {
+        return { projection: null, error: `'${trimmedFieldName}' is not a valid field` }
+      }
+      if (!excludedFields.has(trimmedFieldName)) {
         mongoProjection[trimmedFieldName] = 1
       }
     }
@@ -55,5 +58,5 @@ export function buildProjection(
     }
   }
 
-  return Object.keys(mongoProjection).length > 0 ? mongoProjection : null
+  return { projection: Object.keys(mongoProjection).length > 0 ? mongoProjection : null }
 }

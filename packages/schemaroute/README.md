@@ -27,6 +27,7 @@ This single package includes everything:
 
 | Package | Description |
 |---|---|
+| `@schemaroute/common` | Shared TypeScript types — zero runtime dependencies |
 | `@schemaroute/core` | Framework-agnostic schema parser, route builder, validator, query pipeline |
 | `@schemaroute/express` | Express adapter — registers routes on an Express app |
 | `@schemaroute/docs` | OpenAPI 3.0 spec generator + Swagger UI |
@@ -119,6 +120,8 @@ createAPI(app, ProductSchema, 'products', {
   search:     'all-fields',
   populate:   ['category'],
   exclude:    ['__v'],
+  transform:  (doc) => ({ id: doc._id, ...doc }),
+  debug:      false,
 
   routes: {
     getAll: {
@@ -184,6 +187,8 @@ All hooks receive `(data/doc, ctx)` where `ctx` is a `RequestContext` snapshot.
 | `beforeDelete(doc, ctx)` | before delete | ❌ side effects only |
 | `afterDelete(doc, ctx)` | after delete | ❌ side effects only |
 
+`beforeCreate` runs **before** validation so computed fields (e.g. auto-generated slugs) are present when required-field checks run.
+
 ---
 
 ## OpenAPI Docs
@@ -202,6 +207,12 @@ const spec = generateOpenAPISpec([productsInstance, categoriesInstance], {
 
 mountSwaggerUI(app, spec)
 // → Swagger UI at http://localhost:3000/api-docs
+
+// custom path
+mountSwaggerUI(app, spec, '/docs')
+
+// serve raw spec for Postman / Redoc
+app.get('/openapi.json', (req, res) => res.json(spec))
 ```
 
 ---
@@ -209,7 +220,7 @@ mountSwaggerUI(app, spec)
 ## TypeScript SDK
 
 ```ts
-import { createSDK } from 'schemaroute'
+import { createSDK, SDKError } from 'schemaroute'
 
 const api = createSDK('http://localhost:3000', [productsInstance, categoriesInstance])
 
@@ -223,8 +234,6 @@ await api.products.delete('abc123')
 ### Error handling
 
 ```ts
-import { SDKError } from 'schemaroute'
-
 try {
   await api.products.create({ name: '' })
 } catch (err) {
@@ -241,11 +250,11 @@ try {
 ## Rate Limiting
 
 ```js
-// built-in sliding window
+// built-in sliding window (in-memory, single-process)
 rateLimit: { max: 100, window: '1m' }
 rateLimit: { max: 10,  window: '30s' }
 
-// bring your own middleware
+// bring your own middleware (for distributed/multi-instance deployments)
 rateLimit: [expressRateLimit({ windowMs: 60_000, max: 100 })]
 ```
 
@@ -259,6 +268,7 @@ rateLimit: [expressRateLimit({ windowMs: 60_000, max: 100 })]
 | `400` | Malformed JSON body |
 | `404` | Document not found |
 | `422` | Validation failed |
+| `429` | Rate limit exceeded |
 | `500` | Internal server error |
 
 ---

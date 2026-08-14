@@ -38,13 +38,17 @@ export function sendSuccessResponse(
 }
 
 /**
- * Sends a normalised error response.
- *
- * @param expressResponse - The Express response object.
- * @param httpStatusCode  - HTTP status code (e.g. 400, 404, 422, 500).
- * @param errorMessage    - Human-readable error description.
- * @param errorDetails    - Optional structured details (e.g. validation error array).
+ * Returns true when the error originated from `resolveModel` detecting a
+ * dropped MongoDB connection. Used by handlers to return 503 instead of 500.
  */
+export function isDisconnectedError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err as Error & { code?: string }).code === 'MONGOOSE_DISCONNECTED'
+  )
+}
+
+
 export function sendErrorResponse(
   expressResponse: Response,
   httpStatusCode:  number,

@@ -81,7 +81,20 @@ async function executeRequest<T>(
   options: RequestInit
 ): Promise<T> {
   const response = await fetch(url, options)
-  const body     = await response.json() as Record<string, unknown>
+
+  // Consume the body once as text, then attempt a JSON parse.
+  // This avoids the double-read bug: response.body is a ReadableStream that
+  // can only be consumed once — calling response.json() and then
+  // response.text() in the catch block would return an empty string.
+  const rawText = await response.text().catch(() => '')
+
+  let body: Record<string, unknown> | null = null
+  try {
+    body = JSON.parse(rawText) as Record<string, unknown>
+  } catch {
+    // Non-JSON body (e.g. 502 HTML error page from a proxy)
+    throw new SDKError(response.status, rawText.trim() || response.statusText)
+  }
 
   if (!response.ok) {
     throw new SDKError(

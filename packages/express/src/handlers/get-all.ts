@@ -10,8 +10,8 @@ import type { Model } from 'mongoose'
 import { resolveQuery, buildMeta } from '@schemaroute/core'
 import type { ParsedSchema, ResourceConfig, GetAllRouteConfig } from '@schemaroute/core'
 import { stripExcludedFields, applyDocumentTransform } from '../db/document'
-import { sendSuccessResponse, sendErrorResponse } from '../http/response'
-import { logError } from '../logger'
+import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
+import type { Logger } from '../logger'
 
 /**
  * Creates the `GET /:resource` Express handler.
@@ -34,7 +34,8 @@ export function makeGetAllHandler(
   resolveModel:    () => Model<unknown>,
   parsedSchema:    ParsedSchema,
   routeConfig:     GetAllRouteConfig,
-  resourceConfig:  ResourceConfig
+  resourceConfig:  ResourceConfig,
+  logger:          Logger
 ) {
   return async (expressRequest: Request, expressResponse: Response) => {
     try {
@@ -55,7 +56,21 @@ export function makeGetAllHandler(
         }
       )
 
-      let mongooseQuery = mongooseModel.find(resolvedQuery.filter)
+      if (resolvedQuery.errors.length > 0) {
+        sendErrorResponse(expressResponse, 400, resolvedQuery.errors[0]!)
+        return
+      }
+
+      // Cursor pagination — build a separate find filter that includes the _id
+      // greater-than constraint. countDocuments uses the base filter only so
+      // `total` always reflects the full matching collection size, not just the
+      // remaining documents after the cursor.
+      const findFilter = { ...resolvedQuery.filter }
+      if (resolvedQuery.pagination?.type === 'cursor' && resolvedQuery.pagination.cursor) {
+        findFilter['_id'] = { $gt: resolvedQuery.pagination.cursor }
+      }
+
+      let mongooseQuery = mongooseModel.find(findFilter)
 
       if (resolvedQuery.projection) {
         mongooseQuery = mongooseQuery.select(resolvedQuery.projection)
@@ -63,13 +78,19 @@ export function makeGetAllHandler(
       if (Object.keys(resolvedQuery.sort).length) {
         mongooseQuery = mongooseQuery.sort(resolvedQuery.sort)
       }
-      for (const refFieldName of resolvedQuery.populate) {
-        mongooseQuery = mongooseQuery.populate(refFieldName)
-      }
 
-      // Cursor pagination — apply _id greater-than filter after building the base query
-      if (resolvedQuery.pagination?.type === 'cursor' && resolvedQuery.pagination.cursor) {
-        resolvedQuery.filter['_id'] = { $gt: resolvedQuery.pagination.cursor }
+      // When an inclusion projection is active (?fields=), only populate ref
+      // fields that were explicitly included — skip the rest so they don't
+      // bleed through despite not being in the projection.
+      const requestedFields = expressRequest.query['fields']
+        ? String(expressRequest.query['fields']).split(',').map(f => f.trim())
+        : null
+      const fieldsToPopulate = requestedFields
+        ? resolvedQuery.populate.filter(f => requestedFields.includes(f))
+        : resolvedQuery.populate
+
+      for (const refFieldName of fieldsToPopulate) {
+        mongooseQuery = mongooseQuery.populate(refFieldName)
       }
 
       if (resolvedQuery.pagination?.type === 'page') {
@@ -81,9 +102,14 @@ export function makeGetAllHandler(
         mongooseQuery = mongooseQuery.limit(resolvedQuery.pagination.limit + 1)
       }
 
+      // Execute find and count in parallel.
+      // find uses findFilter (base filter + optional cursor _id constraint).
+      // countDocuments uses the base filter only so meta.total always reflects
+      // the full matching collection size regardless of cursor position.
+      const baseFilter = resolvedQuery.filter
       const [fetchedDocuments, totalDocumentCount] = await Promise.all([
         mongooseQuery.lean().exec(),
-        mongooseModel.countDocuments(resolvedQuery.filter),
+        mongooseModel.countDocuments(baseFilter),
       ])
 
       let nextPageCursor: string | undefined
@@ -112,8 +138,10 @@ export function makeGetAllHandler(
 
       sendSuccessResponse(expressResponse, responseData, responseMeta, resourceConfig.response)
     } catch (unexpectedError) {
-      logError('getAll error:', unexpectedError)
-      sendErrorResponse(expressResponse, 500, 'Internal server error')
+      logger.logError('getAll error:', unexpectedError)
+      const status = isDisconnectedError(unexpectedError) ? 503 : 500
+      const message = status === 503 ? 'Service unavailable — database connection lost' : 'Internal server error'
+      sendErrorResponse(expressResponse, status, message)
     }
   }
 }

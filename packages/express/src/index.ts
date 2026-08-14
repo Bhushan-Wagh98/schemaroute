@@ -31,7 +31,7 @@ import type {
   DeleteRouteConfig,
 } from '@schemaroute/core'
 import { createRateLimiter } from './rate-limiter'
-import { enableDebug, log } from './logger'
+import { createLogger } from './logger'
 import {
   makeGetAllHandler,
   makeGetOneHandler,
@@ -75,40 +75,76 @@ function deriveModelName(pluralResourceName: string): string {
   return singularName.charAt(0).toUpperCase() + singularName.slice(1)
 }
 
-// ─── createAPI ────────────────────────────────────────────────────────────────
+/** Tracks which Express app instances have already had the JSON error handler registered. */
+const appsWithJsonErrorHandler = new WeakSet<Application>()
+
+/**
+ * Registers SchemaRoute's JSON parse error handler on an Express app.
+ * Returns JSON `{ success: false, error: 'Invalid JSON body' }` instead of
+ * Express's default HTML page when a request body cannot be parsed.
+ *
+ * Called automatically by `createAPI` on first use, but can be called
+ * explicitly during app setup to control registration order.
+ * Safe to call multiple times — registers only once per app instance.
+ *
+ * @param expressApp - Express application instance.
+ */
+export function registerErrorHandlers(expressApp: Application): void {
+  if (appsWithJsonErrorHandler.has(expressApp)) return
+  appsWithJsonErrorHandler.add(expressApp)
+  expressApp.use((err: Error & { type?: string }, _req: unknown, res: unknown, next: unknown) => {
+    if (err.type === 'entity.parse.failed') {
+      return (res as import('express').Response)
+        .status(400)
+        .json({ success: false, error: 'Invalid JSON body' })
+    }
+    ;(next as (err: unknown) => void)(err)
+  })
+}
 
 /**
  * Registers auto-generated CRUD routes for a Mongoose schema on an Express app.
  *
- * Must be called after `mongoose.connect()` resolves so that models are bound
- * to the active database connection.
+ * **DB connection is your responsibility** — SchemaRoute does not connect to
+ * MongoDB. You must call `mongoose.connect()` before calling `createAPI`.
+ * SchemaRoute uses the already-open connection on the mongoose instance you pass in.
+ *
+ * **Always pass your mongoose instance** as the 5th argument. If you omit it,
+ * SchemaRoute falls back to `require('mongoose')` which may be a different
+ * instance than the one you connected with, causing silent query failures.
  *
  * @param expressApp       - Express application instance.
  * @param mongooseSchema   - Mongoose schema to generate routes from.
  * @param resourceName     - Plural resource name used as the URL base path (e.g. `'products'`).
  * @param resourceConfig   - Optional resource-level configuration (middleware, hooks, validation, etc.).
- * @param mongooseInstance - Your mongoose instance. Required when using a custom connection
- *                          to avoid dual-instance populate failures.
+ * @param mongooseInstance - **Required in practice.** Your mongoose instance — must already
+ *                          be connected via `mongoose.connect()` before this is called.
+ *
+ * @throws {Error} If called before `mongoose.connect()` has resolved (readyState !== 1).
  *
  * @example
- * // JavaScript (CommonJS)
- * const { createAPI } = require('@schemaroute/express')
- * const mongoose = require('mongoose')
- * const express  = require('express')
+ * import mongoose from 'mongoose'
+ * import express  from 'express'
+ * import { createAPI } from '@schemaroute/express'
  *
  * const ProductSchema = new mongoose.Schema({ name: String, price: Number })
  * const app = express()
  * app.use(express.json())
  *
+ * // ✅ correct — createAPI called AFTER connect resolves, mongoose instance passed
  * mongoose.connect(process.env.MONGO_URI).then(() => {
  *   createAPI(app, ProductSchema, 'products', {
  *     routes: {
  *       create: { validation: true, middleware: [requireAuth] },
  *       delete: { middleware: [requireAuth, requireAdmin] },
  *     },
- *   }, mongoose)
+ *   }, mongoose)  // ← always pass your mongoose instance
  *   app.listen(3000)
  * })
+ *
+ * // ❌ wrong — will throw: mongoose connection is "disconnected"
+ * createAPI(app, ProductSchema, 'products', {}, mongoose)
+ * mongoose.connect(process.env.MONGO_URI)
  */
 export function createAPI(
   expressApp:        Application,
@@ -117,14 +153,31 @@ export function createAPI(
   resourceConfig:    ResourceConfig = {},
   mongooseInstance?: Mongoose
 ): SchemaRouteInstance {
-  if (resourceConfig.debug) enableDebug()
-  const schemaRouteInstance      = createSchemaRoute(mongooseSchema, resourceName, resourceConfig)
-  const { parsedSchema, routes } = schemaRouteInstance
+  const logger = createLogger(resourceName, resourceConfig.debug ?? false)
 
   // Use the provided mongoose instance or fall back to the globally installed one
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mongooseRef = mongooseInstance ?? (require('mongoose') as Mongoose)
-  const modelName   = deriveModelName(resourceName)
+
+  // Guard: warn clearly if called before mongoose.connect() resolves.
+  // readyState 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
+  const readyState = mongooseRef.connection?.readyState
+  if (readyState !== 1) {
+    const stateLabel = ['disconnected', 'connected', 'connecting', 'disconnecting'][readyState ?? 0]
+    throw new Error(
+      `[schemaroute] createAPI('${resourceName}') was called while mongoose connection is "${stateLabel}".\n` +
+      `You must call createAPI inside the .then() callback of mongoose.connect(), ` +
+      `after the connection is fully open.\n\n` +
+      `Example:\n` +
+      `  mongoose.connect(process.env.MONGO_URI).then(() => {\n` +
+      `    createAPI(app, ${resourceName[0]!.toUpperCase() + resourceName.slice(1)}Schema, '${resourceName}', config, mongoose)\n` +
+      `  })`
+    )
+  }
+
+  const schemaRouteInstance      = createSchemaRoute(mongooseSchema, resourceName, resourceConfig)
+  const { parsedSchema, routes } = schemaRouteInstance
+  const modelName                = deriveModelName(resourceName)
 
   // Register on both the global registry and the active connection so that
   // cross-model populate works correctly with Atlas connections
@@ -139,21 +192,23 @@ export function createAPI(
     }
   }
 
-  log(`registered model: ${modelName} — active models: [${Object.keys(mongooseRef.connection?.models ?? {}).join(', ')}]`)
+  logger.log(`registered model: ${modelName} — active models: [${Object.keys(mongooseRef.connection?.models ?? {}).join(', ')}]`)
 
-  // Lazily resolve the model at request time so it always uses the active connection
-  const resolveModel = (): Model<unknown> =>
-    mongooseRef.connection.models[modelName] ?? mongooseRef.models[modelName]!
-
-  // Return JSON instead of Express's default HTML for malformed request bodies
-  expressApp.use((err: Error & { type?: string }, _req: unknown, res: unknown, next: unknown) => {
-    if (err.type === 'entity.parse.failed') {
-      return (res as import('express').Response)
-        .status(400)
-        .json({ success: false, error: 'Invalid JSON body' })
+  // Lazily resolve the model at request time so it always uses the active connection.
+  // Throws a typed error when the connection is not open so handlers can return
+  // a 503 instead of letting Mongoose hang or surface a cryptic internal error.
+  const resolveModel = (): Model<unknown> => {
+    if (mongooseRef.connection?.readyState !== 1) {
+      const err = new Error(`[schemaroute] MongoDB connection lost — readyState: ${mongooseRef.connection?.readyState ?? 0}`)
+      ;(err as Error & { code: string }).code = 'MONGOOSE_DISCONNECTED'
+      throw err
     }
-    ;(next as (err: unknown) => void)(err)
-  })
+    return mongooseRef.connection.models[modelName] ?? mongooseRef.models[modelName]!
+  }
+
+  // Return JSON instead of Express's default HTML for malformed request bodies.
+  // Delegates to registerErrorHandlers which guards against duplicate registration.
+  registerErrorHandlers(expressApp)
 
   // ── Pass 1: Register custom routes first ──────────────────────────────────
   // Must be registered before /:id routes to prevent Express matching
@@ -184,31 +239,31 @@ export function createAPI(
     switch (routeDefinition.operation) {
       case 'getAll':
         expressApp.get(routeDefinition.path, ...routeMiddlewareChain,
-          makeGetAllHandler(resolveModel, parsedSchema, routeDefinition.config as GetAllRouteConfig, resourceConfig) as RequestHandler
+          makeGetAllHandler(resolveModel, parsedSchema, routeDefinition.config as GetAllRouteConfig, resourceConfig, logger) as RequestHandler
         )
         break
 
       case 'getOne':
         expressApp.get(routeDefinition.path, ...routeMiddlewareChain,
-          makeGetOneHandler(resolveModel, parsedSchema, routeDefinition.config as GetOneRouteConfig, resourceConfig) as RequestHandler
+          makeGetOneHandler(resolveModel, parsedSchema, routeDefinition.config as GetOneRouteConfig, resourceConfig, logger) as RequestHandler
         )
         break
 
       case 'create':
         expressApp.post(routeDefinition.path, ...routeMiddlewareChain,
-          makeCreateHandler(resolveModel, parsedSchema, routeDefinition.config as CreateRouteConfig, resourceConfig) as RequestHandler
+          makeCreateHandler(resolveModel, parsedSchema, routeDefinition.config as CreateRouteConfig, resourceConfig, logger) as RequestHandler
         )
         break
 
       case 'update':
         expressApp.put(routeDefinition.path, ...routeMiddlewareChain,
-          makeUpdateHandler(resolveModel, parsedSchema, routeDefinition.config as UpdateRouteConfig, resourceConfig) as RequestHandler
+          makeUpdateHandler(resolveModel, parsedSchema, routeDefinition.config as UpdateRouteConfig, resourceConfig, logger) as RequestHandler
         )
         break
 
       case 'delete':
         expressApp.delete(routeDefinition.path, ...routeMiddlewareChain,
-          makeDeleteHandler(resolveModel, parsedSchema, routeDefinition.config as DeleteRouteConfig, resourceConfig) as RequestHandler
+          makeDeleteHandler(resolveModel, parsedSchema, routeDefinition.config as DeleteRouteConfig, resourceConfig, logger) as RequestHandler
         )
         break
     }

@@ -10,8 +10,8 @@ import type { Model } from 'mongoose'
 import type { ResourceConfig, DeleteRouteConfig, ParsedSchema } from '@schemaroute/core'
 import { isValidMongoObjectId } from '../db/document'
 import { buildRequestContext } from '../http/context'
-import { sendSuccessResponse, sendErrorResponse } from '../http/response'
-import { logError } from '../logger'
+import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
+import type { Logger } from '../logger'
 
 /** Shape of a lean Mongoose document with a guaranteed `_id` field. */
 interface LeanDocument extends Record<string, unknown> {
@@ -30,7 +30,8 @@ export function makeDeleteHandler(
   resolveModel:    () => Model<unknown>,
   _parsedSchema:   ParsedSchema,
   routeConfig:     DeleteRouteConfig,
-  resourceConfig:  ResourceConfig
+  resourceConfig:  ResourceConfig,
+  logger:          Logger
 ) {
   return async (expressRequest: Request, expressResponse: Response) => {
     try {
@@ -68,8 +69,10 @@ export function makeDeleteHandler(
 
       sendSuccessResponse(expressResponse, { id: documentId }, {}, resourceConfig.response)
     } catch (unexpectedError) {
-      logError('delete error:', unexpectedError)
-      sendErrorResponse(expressResponse, 500, 'Internal server error')
+      logger.logError('delete error:', unexpectedError)
+      const status = isDisconnectedError(unexpectedError) ? 503 : 500
+      const message = status === 503 ? 'Service unavailable — database connection lost' : 'Internal server error'
+      sendErrorResponse(expressResponse, status, message)
     }
   }
 }

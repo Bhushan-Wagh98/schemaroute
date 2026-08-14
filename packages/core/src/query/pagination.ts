@@ -28,7 +28,11 @@ export function resolvePagination(
 ): PagePagination | CursorPagination | null {
   if (!paginationMode) return null
 
-  const requestedLimit  = parseInt(queryParams.limit ?? String(DEFAULT_PAGE_LIMIT))
+  const rawLimit        = queryParams.limit
+  const requestedLimit  = parseInt(rawLimit ?? String(DEFAULT_PAGE_LIMIT))
+  if (rawLimit !== undefined && (isNaN(requestedLimit) || requestedLimit <= 0)) {
+    return { type: 'error', message: 'limit must be a positive integer' } as unknown as null
+  }
   const clampedPageLimit = Math.min(
     isNaN(requestedLimit) ? DEFAULT_PAGE_LIMIT : requestedLimit,
     MAX_PAGE_LIMIT
@@ -43,8 +47,12 @@ export function resolvePagination(
     (paginationMode === 'both' && !queryParams.cursor)
 
   if (shouldUsePagePagination) {
-    const requestedPage  = parseInt(queryParams.page ?? '1')
-    const currentPage    = Math.max(isNaN(requestedPage) ? 1 : requestedPage, 1)
+    const rawPage        = queryParams.page
+    const requestedPage  = parseInt(rawPage ?? '1')
+    if (rawPage !== undefined && (isNaN(requestedPage) || requestedPage < 1)) {
+      return { type: 'error', message: 'page must be a positive integer' } as unknown as null
+    }
+    const currentPage    = isNaN(requestedPage) ? 1 : requestedPage
     const skipCount      = (currentPage - 1) * clampedPageLimit
 
     return {

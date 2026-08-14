@@ -27,7 +27,7 @@ export function applySearchFilter(
   schemaFieldNames:   Set<string>,
   configSearchField?: string
 ): void {
-  if (!queryParams.search || !searchMode) return
+  if (!queryParams.search || typeof queryParams.search !== 'string' || !queryParams.search.trim() || !searchMode) return
 
   const caseInsensitiveRegex = { $regex: queryParams.search, $options: 'i' }
 
