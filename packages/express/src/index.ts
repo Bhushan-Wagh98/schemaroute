@@ -92,13 +92,21 @@ const appsWithJsonErrorHandler = new WeakSet<Application>()
 export function registerErrorHandlers(expressApp: Application): void {
   if (appsWithJsonErrorHandler.has(expressApp)) return
   appsWithJsonErrorHandler.add(expressApp)
-  expressApp.use((err: Error & { type?: string }, _req: unknown, res: unknown, next: unknown) => {
+
+  // Must be a 4-argument function so Express recognises it as an error-handling
+  // middleware. Using typed imports avoids the `unknown` cast and makes the
+  // intent explicit to both Express and TypeScript.
+  expressApp.use((
+    err:  Error & { type?: string },
+    _req: import('express').Request,
+    res:  import('express').Response,
+    next: import('express').NextFunction
+  ) => {
     if (err.type === 'entity.parse.failed') {
-      return (res as import('express').Response)
-        .status(400)
-        .json({ success: false, error: 'Invalid JSON body' })
+      res.status(400).json({ success: false, error: 'Invalid JSON body' })
+      return
     }
-    ;(next as (err: unknown) => void)(err)
+    next(err)
   })
 }
 
