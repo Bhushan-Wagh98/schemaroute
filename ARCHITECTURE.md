@@ -432,14 +432,20 @@ custom: [
 - [ ] `CHANGELOG.md`
 - [ ] Integration test suite covering real HTTP scenarios end-to-end
 - [ ] `npm pkg fix` — normalise `repository.url` in all `package.json` files
+- [ ] Role-based access control at route level (`roles: ['admin']`)
+- [ ] `maxBodySize` option per route
+- [ ] Populate field selection — specify which fields to return from a populated ref (e.g. `populate: [{ path: 'category', select: 'name slug' }]`)
+- [ ] Built-in health endpoint option (`health: true` in `createAPI`)
+- [ ] Transform output validation — warn when transform silently drops required fields
 
 ## V1.2 Planned
 
 - [ ] `@schemaroute/fastify` adapter
 - [ ] Distributed rate limiting support (Redis-backed, built-in option)
-- [ ] Nested schema validation (recurse into embedded sub-documents)
 - [ ] Bulk operations — `POST /resource/bulk`, `DELETE /resource/bulk`
 - [ ] `select` query param on `getOne` (field selection parity with `getAll`)
+- [ ] SDK retry logic with configurable timeout and exponential backoff
+- [ ] Request ID / tracing — `x-request-id` propagation through hooks and logs
 - [ ] Response caching hooks (e.g. `afterGetAll`, `afterGetOne` for cache invalidation)
 - [ ] Plugin system — allow third-party packages to extend SchemaRoute behaviour
 
@@ -481,6 +487,13 @@ custom: [
 | **Integration test gap** | Unit tests cover individual modules at 99% but do not cover real HTTP request/response scenarios end-to-end. The `test-api` integration tests require a live MongoDB Atlas connection and are not run in CI. Planned for v1.1. |
 | **Single adapter** | Only Express is supported. Fastify, Koa, Hono, and other frameworks require a custom adapter. `@schemaroute/fastify` planned for v1.2. |
 | **`repository.url` warning on publish** | All `package.json` files have a non-normalised `repository.url` that npm auto-corrects on every publish. Minor but noisy. Fix planned for v1.1. |
+| **No built-in auth/roles** | Auth is entirely user-supplied via middleware. There is no `roles` or `permissions` option at the route level (e.g. `create: { roles: ['admin'] }`). Users must write and wire their own auth middleware for every resource. Planned for v1.1. |
+| **No request body size limit** | SchemaRoute does not enforce or document a `maxBodySize` per route. A malicious client can send a large payload and the server will attempt to parse it. Users must configure `express.json({ limit })` themselves. Planned for v1.1. |
+| **Transform silently drops fields** | If a user-defined `transform` function omits fields like `createdAt`, they silently disappear from the response with no warning. No fallback or validation of transform output. Planned for v1.1. |
+| **SDK has no retry or timeout** | The SDK throws immediately on network failure. There is no retry logic, no configurable timeout, and no exponential backoff. Planned for v1.2. |
+| **No request ID / tracing** | There is no `x-request-id` propagation or built-in request correlation. Failed requests cannot be traced through logs back to a specific API call. Planned for v1.2. |
+| **Populate leaks full sub-document** | When populating a ref, the entire referenced document is returned — all fields including potentially sensitive ones (e.g. `password`). There is no way to specify which fields to return from a populated ref at the config level. Planned for v1.1. |
+| **No built-in health endpoint** | There is no `health: true` option in `createAPI`. Every user must manually add `GET /health` to their app. Planned for v1.1. |
 
 ### Future adapter guidance
 
