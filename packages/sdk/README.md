@@ -1,5 +1,7 @@
 # @schemaroute/sdk
 
+[![npm](https://img.shields.io/npm/v/@schemaroute/sdk)](https://www.npmjs.com/package/@schemaroute/sdk)
+
 Auto-generated TypeScript client SDK for SchemaRoute APIs. Get a fully typed HTTP client with zero boilerplate — methods map 1:1 to your routes, inferred from the same schema instances used to register them.
 
 Uses native `fetch` — no extra HTTP dependencies.
@@ -20,11 +22,11 @@ npm install @schemaroute/sdk
 import { createAPI } from '@schemaroute/express'
 import { createSDK } from '@schemaroute/sdk'
 
-// server side — createAPI now returns the instance
-const productsInstance  = createAPI(app, ProductSchema,  'products',  config, mongoose)
-const categoriesInstance = createAPI(app, CategorySchema, 'categories', config, mongoose)
+// server side — createAPI returns the instance
+const productsInstance   = createAPI(app, ProductSchema,  'products',  {}, mongoose)
+const categoriesInstance = createAPI(app, CategorySchema, 'categories', {}, mongoose)
 
-// create the SDK — pass the same instances
+// create the SDK
 const api = createSDK('http://localhost:3000', [productsInstance, categoriesInstance])
 
 // fully typed CRUD methods
@@ -48,7 +50,10 @@ await api.products.delete('abc123')
 ```ts
 // with auth headers applied to every request
 const api = createSDK('http://localhost:3000', [productsInstance], {
-  headers: { 'x-api-key': 'secret123', 'x-role': 'admin' },
+  headers: {
+    'Authorization': 'Bearer <token>',
+    'x-api-key':     'secret123',
+  },
 })
 ```
 
@@ -60,17 +65,19 @@ Each resource on the SDK object exposes five methods:
 
 ### `getAll(params?)`
 
+Fetches a list of documents. Supports all query options.
+
 ```ts
 const { data, meta } = await api.products.getAll({
-  filter:      { status: 'active' },   // filter by any schema field
-  sort:        'price',
-  order:       'asc',
-  fields:      'name,price,stock',     // field selection
-  search:      'laptop',               // full-text search
-  page:        1,
-  limit:       10,
-  populate:    'category',
-  headers:     { 'x-api-key': 'secret' }, // per-request header override
+  filter:   { status: 'active' },    // filter by any schema field
+  sort:     'price',
+  order:    'asc',
+  fields:   'name,price,stock',      // field selection
+  search:   'laptop',                // full-text search
+  page:     1,
+  limit:    10,
+  populate: 'category',
+  headers:  { 'x-api-key': 'secret' }, // per-request header override
 })
 // data → Product[]
 // meta → { page, limit, total, totalPages }
@@ -78,29 +85,40 @@ const { data, meta } = await api.products.getAll({
 
 ### `getOne(id, params?)`
 
+Fetches a single document by ID.
+
 ```ts
 const { data } = await api.products.getOne('507f1f77bcf86cd799439011')
+const { data } = await api.products.getOne('abc123', {
+  headers: { 'Authorization': 'Bearer <token>' },
+})
 // data → Product
 ```
 
 ### `create(body, params?)`
 
+Creates a new document.
+
 ```ts
 const { data } = await api.products.create(
   { name: 'Laptop', price: 999, stock: 10, category: 'abc123' },
-  { headers: { 'x-api-key': 'secret' } }
+  { headers: { 'Authorization': 'Bearer <token>' } }
 )
 // data → created Product
 ```
 
 ### `update(id, body, params?)`
 
+Updates an existing document by ID.
+
 ```ts
-const { data } = await api.products.update('abc123', { price: 899 })
+const { data } = await api.products.update('abc123', { price: 899, stock: 5 })
 // data → updated Product
 ```
 
 ### `delete(id, params?)`
+
+Deletes a document by ID.
 
 ```ts
 const { data } = await api.products.delete('abc123')
@@ -132,3 +150,46 @@ try {
 | `err.status` | `number` | HTTP status code |
 | `err.error` | `string` | Server error message |
 | `err.details` | `array \| undefined` | Validation errors (422 only) |
+
+---
+
+## Per-Request Headers
+
+Override default headers on any individual request:
+
+```ts
+// default headers set at SDK level
+const api = createSDK('http://localhost:3000', instances, {
+  headers: { 'x-api-key': 'global-key' },
+})
+
+// override for a specific request
+await api.products.create(data, {
+  headers: { 'x-api-key': 'different-key', 'x-trace-id': 'abc' },
+})
+```
+
+---
+
+## TypeScript Types
+
+```ts
+import type {
+  SDKOptions,
+  GetAllParams,
+  GetOneParams,
+  CreateParams,
+  UpdateParams,
+  DeleteParams,
+  ListResponse,
+  SingleResponse,
+  DeleteResponse,
+  ResourceClient,
+} from '@schemaroute/sdk'
+```
+
+---
+
+## License
+
+MIT
