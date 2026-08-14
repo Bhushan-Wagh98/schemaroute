@@ -448,6 +448,14 @@ custom: [
 - [ ] Request ID / tracing — `x-request-id` propagation through hooks and logs
 - [ ] Response caching hooks (e.g. `afterGetAll`, `afterGetOne` for cache invalidation)
 - [ ] Plugin system — allow third-party packages to extend SchemaRoute behaviour
+- [ ] API versioning — `version` / `prefix` option in `createAPI` (e.g. `/v1/products`)
+- [ ] TypeScript generics on SDK — pass schema type to get fully typed responses (`Product[]`)
+- [ ] Connection circuit breaker — queue or retry requests when MongoDB reconnects
+- [ ] Multitenancy / query scoping — `scope: (req) => ({ userId: req.user.id })` auto-applied to every query
+- [ ] Global event system — `schemaroute.on('create', handler)` across all resources
+- [ ] File upload support — `multipart/form-data` handling
+- [ ] Response compression — built-in `gzip`/`brotli` option
+- [ ] Documentation site — Docusaurus or VitePress with searchable, navigable docs
 
 ---
 
@@ -494,6 +502,14 @@ custom: [
 | **No request ID / tracing** | There is no `x-request-id` propagation or built-in request correlation. Failed requests cannot be traced through logs back to a specific API call. Planned for v1.2. |
 | **Populate leaks full sub-document** | When populating a ref, the entire referenced document is returned — all fields including potentially sensitive ones (e.g. `password`). There is no way to specify which fields to return from a populated ref at the config level. Planned for v1.1. |
 | **No built-in health endpoint** | There is no `health: true` option in `createAPI`. Every user must manually add `GET /health` to their app. Planned for v1.1. |
+| **No API versioning** | There is no `version` or `prefix` option in `createAPI`. When a schema changes, all consumers break immediately. No `/v1/` prefix support. Planned for v1.2. |
+| **No TypeScript generics on SDK** | `api.products.getAll()` returns `unknown` typed data. There is no way to pass a schema type to the SDK and get back a typed response (e.g. `Product[]`). Type safety is lost entirely on the client side. Planned for v1.2. |
+| **No connection circuit breaker** | SchemaRoute returns 503 when MongoDB disconnects but does not queue or retry requests when the connection recovers. No circuit breaker pattern at the handler level. Planned for v1.2. |
+| **No multitenancy / query scoping** | There is no `scope` option to auto-apply per-request filters to every query (e.g. `scope: (req) => ({ userId: req.user.id })`). Users must manually add filters in every `beforeCreate`/`beforeUpdate` hook for every resource. Planned for v1.2. |
+| **No global event system** | There is no way to subscribe to events across all resources globally (e.g. `schemaroute.on('create', auditLog)`). Hooks must be added individually to every resource. Planned for v1.2. |
+| **No file upload support** | `multipart/form-data` is completely unsupported. Resources that need file uploads must bypass SchemaRoute entirely with a custom route. Planned for v1.2. |
+| **No response compression** | No built-in `gzip`/`brotli` option. For large list responses this matters in production. Users must add `compression` middleware themselves. Planned for v1.2. |
+| **No documentation site** | There is no dedicated docs website (e.g. Docusaurus or VitePress). Only a README and ARCHITECTURE.md exist. Searchable, navigable docs are critical for library adoption. Planned for v1.2. |
 
 ### Future adapter guidance
 
