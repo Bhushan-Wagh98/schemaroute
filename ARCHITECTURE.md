@@ -377,7 +377,8 @@ custom: [
 ### Validation
 
 - Auto-generated from Mongoose schema — no extra config needed
-- Validates `required`, `type`, `enum`, `min`, `max`, `minlength`, `maxlength`
+- Validates `required`, `type`, `enum`, `min`, `max`, `minlength`, `maxlength`, `objectid` format
+- Validates that ObjectId ref fields point to existing documents
 - Returns structured error response on failure
 
 ```json
@@ -386,7 +387,8 @@ custom: [
   "error": "Validation failed",
   "details": [
     { "field": "email", "message": "email is required" },
-    { "field": "age", "message": "age must be a number" }
+    { "field": "age", "message": "age must be a number" },
+    { "field": "category", "message": "category must be a valid ObjectId" }
   ]
 }
 ```
@@ -399,23 +401,36 @@ custom: [
 - [x] Route builder (framework agnostic)
 - [x] 3-layer override system (global → resource → route)
 - [x] Per-route config (enabled, public, middleware, validation)
-- [x] Input validation from schema
+- [x] Input validation from schema (required, type, min, max, minlength, maxlength, enum, objectid format)
+- [x] Ref existence validation (422 for non-existent referenced documents)
 - [x] Filtering, sorting, field selection
+- [x] Query param validation (400 for invalid sort field, unknown fields, bad page/limit, invalid enum filter)
 - [x] Pagination (page + cursor + both)
-- [x] Search (all-fields + single-field)
-- [x] Population (mongoose refs)
+- [x] Search (all-fields + single-field, empty/whitespace ignored)
+- [x] Population (mongoose refs, respects ?fields= projection)
 - [x] Hooks (before/after per operation)
 - [x] Custom routes
 - [x] Response shape (default + customizable)
 - [x] Document transform (per-resource + per-route)
 - [x] Rate limiting (built-in + bring your own)
 - [x] Standard error handling
+- [x] JSON 404 catch-all handler
 - [x] Express adapter
 - [x] OpenAPI 3.0 spec generation (`@schemaroute/docs`)
 - [x] Swagger UI mount (`/api-docs`)
 - [x] TypeScript client SDK (`@schemaroute/sdk`)
 - [x] Shared types package (`@schemaroute/common`)
 - [x] Debug logging (opt-in, silent by default)
+
+## V1.1 Planned
+
+- [ ] `PATCH /:id` route for partial updates
+- [ ] `?populate=` query param support on `getOne`
+- [ ] Soft delete (`deletedAt` / `isDeleted` flag)
+- [ ] Nested schema validation (recurse into embedded sub-documents)
+- [ ] GitHub Actions CI/CD pipeline (test on PR, publish on tag)
+- [ ] `CHANGELOG.md`
+- [ ] `@schemaroute/fastify` adapter
 
 ---
 
@@ -427,9 +442,15 @@ custom: [
 - **Lazy model resolution** — `resolveModel()` is called at request time, not at registration time, so the active connection is always used.
 - **Single JSON error handler** — the malformed-body handler is registered once per app instance via a `WeakSet` guard, preventing duplicate middleware.
 - **Type coercion in filters** — `?price=99` is coerced to `{ price: 99 }` (number) before the Mongoose query, preventing silent type mismatches.
+- **Enum filter validation** — `?status=badvalue` returns `400` instead of silently returning an empty result set.
+- **Query param validation** — invalid `?sort=`, `?fields=`, `?page=`, and `?limit=` values return `400` with a clear error message instead of being silently ignored or normalised.
+- **ObjectId validation in body** — invalid ObjectId format in request body returns `422` instead of a Mongoose `CastError` 500.
+- **Ref existence check** — ObjectId ref fields are verified against the DB before insert/update, returning `422` if the referenced document does not exist.
+- **Field projection respects populate** — when `?fields=` is active, ref fields not listed are not populated, preventing data leaking through the projection.
 - **Custom routes registered first** — prevents Express matching `/products/active` as `/products/:id`.
 - **`beforeCreate` runs before validation** — allows hooks to inject computed fields (e.g. slug) before required-field checks run.
 - **Cursor pagination fetches `limit + 1`** — determines `hasNextPage` without a separate count query.
+- **JSON 404 handler** — unknown routes return `{ success: false, error: 'Route not found' }` instead of Express's default HTML page.
 - **`@schemaroute/common` has zero runtime deps** — types-only package keeps the dependency graph clean.
 
 ### Known trade-offs and limitations
@@ -441,6 +462,10 @@ custom: [
 | **Mongoose fallback** | If `mongoose` is not passed as the 5th argument, `createAPI` falls back to `require('mongoose')`. This may be a different instance than the one you connected with. Always pass your instance explicitly. |
 | **Update validation** | `validation: true` on `update` runs the full schema validation (all required fields). For partial updates where only some fields are sent, consider using `beforeUpdate` to fill defaults or disable validation and rely on Mongoose's `runValidators`. |
 | **`object` FieldType** | Embedded sub-documents are parsed as `'object'` type. The validator does not recurse into nested schemas — only top-level fields are validated. |
+| **No PATCH route** | Only `PUT /:id` (full replace) is supported. There is no `PATCH /:id` for partial updates. Planned for v1.1. |
+| **`?populate=` on getOne** | `getOne` only supports config-level populate, not `?populate=` as a query param. `getAll` supports both. Planned for v1.1. |
+| **No soft delete** | Delete is hard — no `deletedAt` / `isDeleted` flag option. Planned for v1.1. |
+| **No CI/CD pipeline** | No GitHub Actions workflow exists yet. Tests and publish are run manually. Planned for v1.1. |
 
 ### Future adapter guidance
 
