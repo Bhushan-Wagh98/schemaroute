@@ -21,6 +21,9 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Local apps
+apps/
+
 # Turbo cache
 .turbo/
 
