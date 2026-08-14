@@ -40,7 +40,9 @@ Mongoose Schema
 schemaroute-lib/
 ├── packages/
 │   ├── core/             ← schema parser, route builder, validation logic (framework-agnostic)
-│   └── express/          ← express adapter
+│   ├── express/          ← express adapter
+│   ├── docs/             ← OpenAPI 3.0 spec generator + Swagger UI
+│   └── sdk/              ← TypeScript client SDK
 ├── package.json          ← turborepo root
 ├── turbo.json
 ├── pnpm-workspace.yaml
@@ -52,8 +54,6 @@ schemaroute-lib/
 - `@schemaroute/fastify`
 - `@schemaroute/koa`
 - `@schemaroute/hono`
-- `@schemaroute/docs`        ← OpenAPI/Swagger generation
-- `@schemaroute/sdk`         ← TypeScript client SDK generation
 
 ---
 
@@ -401,6 +401,9 @@ custom: [
 - [x] Rate limiting (built-in + bring your own)
 - [x] Standard error handling
 - [x] Express adapter
+- [x] OpenAPI 3.0 spec generation (`@schemaroute/docs`)
+- [x] Swagger UI mount (`/api-docs`)
+- [x] TypeScript client SDK (`@schemaroute/sdk`)
 
 ---
 
@@ -421,6 +424,6 @@ custom: [
 | Response shape | ❌ | ❌ | ✅ |
 | Rate limiting | ❌ | ❌ | ✅ |
 | 3-layer config override | ❌ | ❌ | ✅ |
-| OpenAPI docs | ❌ | ❌ | 🔜 |
-| TypeScript SDK | ❌ | ❌ | 🔜 |
+| OpenAPI docs | ❌ | ❌ | ✅ |
+| TypeScript SDK | ❌ | ❌ | ✅ |
 | Zero boilerplate | ⚠️ | ❌ | ✅ |
