@@ -1,6 +1,6 @@
 {
   "name": "@schemaroute/core",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Framework-agnostic core for SchemaRoute — generates routes from Mongoose schemas",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -12,7 +12,9 @@
       "require": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
@@ -21,12 +23,12 @@
     "lint": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/mongoose":       "^5.11.97",
-    "@vitest/coverage-v8":  "^1.0.0",
-    "mongoose":             "^8.0.0",
-    "tsup":                 "^8.0.0",
-    "typescript":           "^5.0.0",
-    "vitest":               "^1.0.0"
+    "@types/mongoose": "^5.11.97",
+    "@vitest/coverage-v8": "^1.0.0",
+    "mongoose": "^8.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
   },
   "peerDependencies": {
     "mongoose": ">=7.0.0"

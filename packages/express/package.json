@@ -1,6 +1,6 @@
 {
   "name": "@schemaroute/express",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Express adapter for SchemaRoute",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -12,7 +12,9 @@
       "require": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
