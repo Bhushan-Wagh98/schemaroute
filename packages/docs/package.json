@@ -1,6 +1,6 @@
 {
   "name": "@schemaroute/docs",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OpenAPI 3.0 spec generator and Swagger UI for SchemaRoute",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
