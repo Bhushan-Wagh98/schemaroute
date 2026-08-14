@@ -1,0 +1,35 @@
+{
+  "name": "@schemaroute/docs",
+  "version": "0.0.1",
+  "description": "OpenAPI/Swagger docs generator for SchemaRoute",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types":   "./dist/index.d.ts",
+      "import":  "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev":   "tsup --watch",
+    "lint":  "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/express":        "^4.17.21",
+    "@types/swagger-ui-express": "^4.1.6",
+    "tsup":       "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@schemaroute/core":  "workspace:*",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "peerDependencies": {
+    "express": ">=4.0.0"
+  }
+}

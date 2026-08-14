@@ -1,0 +1,20 @@
+{
+  "name": "schemaroute-monorepo",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "lint": "turbo run lint"
+  },
+  "pnpm": {
+    "overrides": {
+      "mongoose": "^8.24.3"
+    }
+  },
+  "devDependencies": {
+    "turbo": "latest",
+    "typescript": "^5.0.0"
+  }
+}
