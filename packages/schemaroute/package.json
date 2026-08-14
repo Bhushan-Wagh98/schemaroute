@@ -1,0 +1,21 @@
+{
+  "name": "schemaroute",
+  "version": "1.0.0",
+  "description": "Auto-generate CRUD API routes from a Mongoose schema. Umbrella package for all @schemaroute packages.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "keywords": ["schemaroute", "mongoose", "crud", "express", "api", "rest", "openapi", "sdk"],
+  "author": "bhushan-wagh",
+  "license": "MIT",
+  "dependencies": {
+    "@schemaroute/core": "1.0.0",
+    "@schemaroute/express": "1.0.0",
+    "@schemaroute/docs": "1.0.0",
+    "@schemaroute/sdk": "1.0.0"
+  }
+}
