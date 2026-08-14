@@ -31,6 +31,7 @@ import type {
   DeleteRouteConfig,
 } from '@schemaroute/core'
 import { createRateLimiter } from './rate-limiter'
+import { enableDebug, log } from './logger'
 import {
   makeGetAllHandler,
   makeGetOneHandler,
@@ -116,6 +117,7 @@ export function createAPI(
   resourceConfig:    ResourceConfig = {},
   mongooseInstance?: Mongoose
 ): SchemaRouteInstance {
+  if (resourceConfig.debug) enableDebug()
   const schemaRouteInstance      = createSchemaRoute(mongooseSchema, resourceName, resourceConfig)
   const { parsedSchema, routes } = schemaRouteInstance
 
@@ -137,10 +139,7 @@ export function createAPI(
     }
   }
 
-  console.log(
-    `[schemaroute] registered model: ${modelName}`,
-    Object.keys(mongooseRef.connection?.models ?? {})
-  )
+  log(`registered model: ${modelName} — active models: [${Object.keys(mongooseRef.connection?.models ?? {}).join(', ')}]`)
 
   // Lazily resolve the model at request time so it always uses the active connection
   const resolveModel = (): Model<unknown> =>

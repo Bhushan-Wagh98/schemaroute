@@ -11,6 +11,7 @@ import { resolveQuery, buildMeta } from '@schemaroute/core'
 import type { ParsedSchema, ResourceConfig, GetAllRouteConfig } from '@schemaroute/core'
 import { stripExcludedFields, applyDocumentTransform } from '../db/document'
 import { sendSuccessResponse, sendErrorResponse } from '../http/response'
+import { logError } from '../logger'
 
 /**
  * Creates the `GET /:resource` Express handler.
@@ -111,7 +112,7 @@ export function makeGetAllHandler(
 
       sendSuccessResponse(expressResponse, responseData, responseMeta, resourceConfig.response)
     } catch (unexpectedError) {
-      console.error('[schemaroute] getAll error:', unexpectedError)
+      logError('getAll error:', unexpectedError)
       sendErrorResponse(expressResponse, 500, 'Internal server error')
     }
   }

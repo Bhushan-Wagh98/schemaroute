@@ -16,6 +16,7 @@ import { validate } from '@schemaroute/core'
 import type { ParsedSchema, ResourceConfig, CreateRouteConfig } from '@schemaroute/core'
 import { buildRequestContext } from '../http/context'
 import { sendSuccessResponse, sendErrorResponse } from '../http/response'
+import { logError } from '../logger'
 
 /**
  * Creates the `POST /:resource` Express handler.
@@ -71,7 +72,7 @@ export function makeCreateHandler(
 
       sendSuccessResponse(expressResponse, responseData, {}, resourceConfig.response, 201)
     } catch (unexpectedError) {
-      console.error('[schemaroute] create error:', unexpectedError)
+      logError('create error:', unexpectedError)
       sendErrorResponse(expressResponse, 500, 'Internal server error')
     }
   }

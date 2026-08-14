@@ -140,6 +140,8 @@ export interface ResourceConfig {
   exclude?:    string[]
   select?:     string[]
   transform?:  TransformFn
+  /** Enable diagnostic logging from the SchemaRoute library. Default: `false`. */
+  debug?:      boolean
   routes?: {
     getAll?:  GetAllRouteConfig
     getOne?:  GetOneRouteConfig

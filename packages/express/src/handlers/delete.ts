@@ -11,6 +11,7 @@ import type { ResourceConfig, DeleteRouteConfig, ParsedSchema } from '@schemarou
 import { isValidMongoObjectId } from '../db/document'
 import { buildRequestContext } from '../http/context'
 import { sendSuccessResponse, sendErrorResponse } from '../http/response'
+import { logError } from '../logger'
 
 /** Shape of a lean Mongoose document with a guaranteed `_id` field. */
 interface LeanDocument extends Record<string, unknown> {
@@ -67,7 +68,7 @@ export function makeDeleteHandler(
 
       sendSuccessResponse(expressResponse, { id: documentId }, {}, resourceConfig.response)
     } catch (unexpectedError) {
-      console.error('[schemaroute] delete error:', unexpectedError)
+      logError('delete error:', unexpectedError)
       sendErrorResponse(expressResponse, 500, 'Internal server error')
     }
   }

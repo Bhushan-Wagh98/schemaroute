@@ -12,6 +12,7 @@ import type { ParsedSchema, ResourceConfig, UpdateRouteConfig } from '@schemarou
 import { isValidMongoObjectId } from '../db/document'
 import { buildRequestContext } from '../http/context'
 import { sendSuccessResponse, sendErrorResponse } from '../http/response'
+import { logError } from '../logger'
 
 /**
  * Creates the `PUT /:resource/:id` Express handler.
@@ -73,7 +74,7 @@ export function makeUpdateHandler(
 
       sendSuccessResponse(expressResponse, responseData, {}, resourceConfig.response)
     } catch (unexpectedError) {
-      console.error('[schemaroute] update error:', unexpectedError)
+      logError('update error:', unexpectedError)
       sendErrorResponse(expressResponse, 500, 'Internal server error')
     }
   }

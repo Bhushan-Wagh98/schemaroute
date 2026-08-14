@@ -10,6 +10,7 @@ import type { Model } from 'mongoose'
 import type { ParsedSchema, ResourceConfig, GetOneRouteConfig } from '@schemaroute/core'
 import { isValidMongoObjectId, stripExcludedFields } from '../db/document'
 import { sendSuccessResponse, sendErrorResponse } from '../http/response'
+import { logError } from '../logger'
 
 /**
  * Creates the `GET /:resource/:id` Express handler.
@@ -83,7 +84,7 @@ export function makeGetOneHandler(
 
       sendSuccessResponse(expressResponse, responseData, {}, resourceConfig.response)
     } catch (unexpectedError) {
-      console.error('[schemaroute] getOne error:', unexpectedError)
+      logError('getOne error:', unexpectedError)
       sendErrorResponse(expressResponse, 500, 'Internal server error')
     }
   }

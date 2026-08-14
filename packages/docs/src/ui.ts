@@ -32,5 +32,4 @@ export function mountSwaggerUI(
   docsPath:   string = '/api-docs'
 ): void {
   expressApp.use(docsPath, swaggerUi.serve, swaggerUi.setup(spec))
-  console.log(`[schemaroute/docs] Swagger UI available at ${docsPath}`)
 }
