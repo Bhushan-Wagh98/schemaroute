@@ -430,7 +430,18 @@ custom: [
 - [ ] Nested schema validation (recurse into embedded sub-documents)
 - [ ] GitHub Actions CI/CD pipeline (test on PR, publish on tag)
 - [ ] `CHANGELOG.md`
+- [ ] Integration test suite covering real HTTP scenarios end-to-end
+- [ ] `npm pkg fix` — normalise `repository.url` in all `package.json` files
+
+## V1.2 Planned
+
 - [ ] `@schemaroute/fastify` adapter
+- [ ] Distributed rate limiting support (Redis-backed, built-in option)
+- [ ] Nested schema validation (recurse into embedded sub-documents)
+- [ ] Bulk operations — `POST /resource/bulk`, `DELETE /resource/bulk`
+- [ ] `select` query param on `getOne` (field selection parity with `getAll`)
+- [ ] Response caching hooks (e.g. `afterGetAll`, `afterGetOne` for cache invalidation)
+- [ ] Plugin system — allow third-party packages to extend SchemaRoute behaviour
 
 ---
 
@@ -466,6 +477,10 @@ custom: [
 | **`?populate=` on getOne** | `getOne` only supports config-level populate, not `?populate=` as a query param. `getAll` supports both. Planned for v1.1. |
 | **No soft delete** | Delete is hard — no `deletedAt` / `isDeleted` flag option. Planned for v1.1. |
 | **No CI/CD pipeline** | No GitHub Actions workflow exists yet. Tests and publish are run manually. Planned for v1.1. |
+| **No CHANGELOG** | No `CHANGELOG.md` exists. Consumers cannot tell what changed between versions without reading raw commits. Planned for v1.1. |
+| **Integration test gap** | Unit tests cover individual modules at 99% but do not cover real HTTP request/response scenarios end-to-end. The `test-api` integration tests require a live MongoDB Atlas connection and are not run in CI. Planned for v1.1. |
+| **Single adapter** | Only Express is supported. Fastify, Koa, Hono, and other frameworks require a custom adapter. `@schemaroute/fastify` planned for v1.2. |
+| **`repository.url` warning on publish** | All `package.json` files have a non-normalised `repository.url` that npm auto-corrects on every publish. Minor but noisy. Fix planned for v1.1. |
 
 ### Future adapter guidance
 
