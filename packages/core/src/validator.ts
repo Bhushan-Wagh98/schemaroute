@@ -89,11 +89,15 @@ function validateField(
   }
 
   // ── Enum check ────────────────────────────────────────────────────────────
-  // Only apply enum validation to string and number fields — the only types
-  // where Mongoose enum constraints are meaningful. All other types (array,
-  // object, date, objectid, boolean, mixed) are skipped to avoid false positives
-  // from reference-equality mismatches on non-primitive values.
-  if (allowedValues && (type === 'string' || type === 'number') && !allowedValues.includes(value))
+  // Only apply enum validation when ALL of the following are true:
+  //   1. The field has an enum constraint
+  //   2. The field type is string or number — the only types where Mongoose
+  //      enum constraints are meaningful
+  //   3. The runtime value is a primitive (string or number) — guards against
+  //      false positives when an array or object is submitted for a field that
+  //      has an enum, since reference-equality on non-primitives always fails
+  const valueIsPrimitive = typeof value === 'string' || typeof value === 'number'
+  if (allowedValues && (type === 'string' || type === 'number') && valueIsPrimitive && !allowedValues.includes(value))
     errors.push({ field: name, message: `${name} must be one of: ${allowedValues.join(', ')}` })
 }
 
