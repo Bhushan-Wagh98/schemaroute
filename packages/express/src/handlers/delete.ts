@@ -12,6 +12,11 @@ import { isValidMongoObjectId } from '../db/document'
 import { buildRequestContext } from '../http/context'
 import { sendSuccessResponse, sendErrorResponse } from '../http/response'
 
+/** Shape of a lean Mongoose document with a guaranteed `_id` field. */
+interface LeanDocument extends Record<string, unknown> {
+  _id: unknown
+}
+
 /**
  * Creates the `DELETE /:resource/:id` Express handler.
  *
@@ -37,15 +42,15 @@ export function makeDeleteHandler(
       const mongooseModel = resolveModel()
 
       // Fetch before deletion so hooks receive the full document
-      const documentToDelete = await mongooseModel.findById(documentId).lean().exec()
+      const documentToDelete = await mongooseModel.findById(documentId).lean().exec() as LeanDocument | null
       if (!documentToDelete) {
         return sendErrorResponse(expressResponse, 404, 'Resource not found')
       }
 
       // Normalise _id to string before passing to hooks
       const serialisedDocument: Record<string, unknown> = {
-        ...(documentToDelete as Record<string, unknown>),
-        _id: String((documentToDelete as any)._id),
+        ...documentToDelete,
+        _id: String(documentToDelete._id),
       }
 
       const requestContext = buildRequestContext(expressRequest)

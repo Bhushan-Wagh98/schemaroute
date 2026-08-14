@@ -11,7 +11,7 @@
  *   - Standard response envelopes (200, 201, 400, 404, 422, 500)
  */
 
-import type { SchemaRouteInstance, ParsedField, FieldType } from '@schemaroute/core'
+import type { SchemaRouteInstance, ParsedField, FieldType } from '@schemaroute/common'
 import type {
   DocsOptions,
   OpenAPISpec,

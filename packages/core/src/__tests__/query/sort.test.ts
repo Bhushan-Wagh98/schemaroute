@@ -34,8 +34,8 @@ describe('buildSortObject', () => {
     expect(sort).toEqual({ createdAt: -1 })
   })
 
-  it('falls back to default when sort is undefined (not explicitly enabled)', () => {
-    // isSortEnabled = undefined means not explicitly disabled — sort should still work
+  it('sorts when isSortEnabled is undefined (not explicitly disabled)', () => {
+    // undefined means the option was not set — sort should still apply
     const sort = buildSortObject({ sort: 'name' }, SCHEMA_FIELDS, undefined)
     expect(sort).toEqual({ name: 1 })
   })

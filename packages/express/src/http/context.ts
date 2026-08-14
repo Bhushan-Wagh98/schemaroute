@@ -10,6 +10,14 @@ import type { Request } from 'express'
 import type { RequestContext } from '@schemaroute/core'
 
 /**
+ * Extends the Express Request type to include the optional `user` property
+ * set by auth middleware (e.g. passport, jwt-express).
+ */
+interface AuthenticatedRequest extends Request {
+  user?: Record<string, unknown>
+}
+
+/**
  * Builds a `RequestContext` from an Express `Request`.
  *
  * `user` is read from `req.user` which is populated by auth middleware before
@@ -20,10 +28,11 @@ import type { RequestContext } from '@schemaroute/core'
  * @returns              A serialisable context snapshot for use in hooks.
  */
 export function buildRequestContext(expressRequest: Request): RequestContext {
+  const req = expressRequest as AuthenticatedRequest
   return {
-    headers: expressRequest.headers as Record<string, string | string[] | undefined>,
-    query:   expressRequest.query   as Record<string, unknown>,
-    params:  expressRequest.params  as Record<string, string>,
-    user:    (expressRequest as any).user,
+    headers: req.headers as Record<string, string | string[] | undefined>,
+    query:   req.query   as Record<string, unknown>,
+    params:  req.params  as Record<string, string>,
+    user:    req.user,
   }
 }

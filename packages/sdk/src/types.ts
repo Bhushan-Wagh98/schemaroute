@@ -3,7 +3,7 @@
  * @description Public TypeScript interfaces for @schemaroute/sdk.
  */
 
-import type { ResponseMeta } from '@schemaroute/core'
+import type { ResponseMeta } from '@schemaroute/common'
 
 // ─── SDK Options ──────────────────────────────────────────────────────────────
 

@@ -88,4 +88,20 @@ describe('buildResponseMeta', () => {
     const meta = buildResponseMeta({ type: 'cursor', cursor: null, limit: 10 }, 5)
     expect(meta).not.toHaveProperty('nextCursor')
   })
+
+  it('returns totalPages of 1 when total equals limit exactly', () => {
+    const meta = buildResponseMeta({ type: 'page', page: 1, limit: 10, skip: 0 }, 10)
+    expect(meta.totalPages).toBe(1)
+  })
+
+  it('returns totalPages of 0 when total is 0', () => {
+    const meta = buildResponseMeta({ type: 'page', page: 1, limit: 10, skip: 0 }, 0)
+    expect(meta.totalPages).toBe(0)
+  })
+
+  it('builds cursor meta without nextCursor when undefined is passed explicitly', () => {
+    const meta = buildResponseMeta({ type: 'cursor', cursor: 'abc', limit: 5 }, 20, undefined)
+    expect(meta).not.toHaveProperty('nextCursor')
+    expect(meta).toMatchObject({ limit: 5, total: 20 })
+  })
 })

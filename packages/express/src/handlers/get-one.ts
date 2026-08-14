@@ -41,12 +41,21 @@ export function makeGetOneHandler(
       ]
       const fieldsToSelect = routeConfig.select ?? resourceConfig.select
 
-      // Build projection — MongoDB cannot mix inclusion and exclusion in one projection
+      // Build projection — MongoDB cannot mix inclusion and exclusion in one projection.
+      // When select fields are configured, use inclusion-only and skip the exclusion list.
+      // When no select is configured, use exclusion-only.
       const mongoProjection: Record<string, 0 | 1> = {}
       if (fieldsToSelect?.length) {
-        for (const selectedField of fieldsToSelect) mongoProjection[selectedField] = 1
+        // Inclusion projection — only include selected fields that are not excluded
+        for (const selectedField of fieldsToSelect) {
+          if (!fieldsToExclude.includes(selectedField)) {
+            mongoProjection[selectedField] = 1
+          }
+        }
+      } else {
+        // Exclusion-only projection
+        for (const excludedField of fieldsToExclude) mongoProjection[excludedField] = 0
       }
-      for (const excludedField of fieldsToExclude) mongoProjection[excludedField] = 0
 
       let mongooseQuery = mongooseModel.findById(documentId)
       if (Object.keys(mongoProjection).length) {

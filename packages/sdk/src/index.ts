@@ -20,7 +20,7 @@
  * await api.products.delete('abc123')
  */
 
-import type { SchemaRouteInstance } from '@schemaroute/core'
+import type { SchemaRouteInstance } from '@schemaroute/common'
 import { createResourceClient }     from './resource-client'
 import type { SDKOptions, ResourceClient } from './types'
 

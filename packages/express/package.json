@@ -1,38 +1,49 @@
 {
   "name": "@schemaroute/express",
   "version": "1.0.0",
-  "description": "Express adapter for SchemaRoute",
+  "description": "Express adapter for SchemaRoute — auto-generate CRUD routes from a Mongoose schema",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
+      "types":   "./dist/index.d.ts",
+      "import":  "./dist/index.mjs",
       "require": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist", "README.md"],
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch",
-    "test": "vitest run",
-    "lint": "tsc --noEmit"
+    "dev":   "tsup --watch",
+    "test":  "vitest run",
+    "lint":  "tsc --noEmit"
+  },
+  "dependencies": {
+    "@schemaroute/common": "workspace:*",
+    "@schemaroute/core":   "workspace:*"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
-    "tsup": "^8.0.0",
-    "typescript": "^5.0.0",
-    "vitest": "^1.0.0"
-  },
-  "dependencies": {
-    "@schemaroute/core": "workspace:*"
+    "tsup":           "^8.0.0",
+    "typescript":     "^5.0.0",
+    "vitest":         "^1.0.0"
   },
   "peerDependencies": {
-    "express": ">=4.0.0",
+    "express":  ">=4.0.0",
     "mongoose": ">=7.0.0"
+  },
+  "keywords": ["schemaroute", "express", "mongoose", "crud", "rest", "api", "typescript"],
+  "author": "bhushan-wagh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url":  "https://github.com/Bhushan-Wagh98/schemaroute.git",
+    "directory": "packages/express"
+  },
+  "homepage": "https://github.com/Bhushan-Wagh98/schemaroute#readme",
+  "bugs": {
+    "url": "https://github.com/Bhushan-Wagh98/schemaroute/issues"
   }
 }

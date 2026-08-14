@@ -1,3 +1,4 @@
+export * from '@schemaroute/common'
 export * from '@schemaroute/core'
 export * from '@schemaroute/express'
 export * from '@schemaroute/docs'

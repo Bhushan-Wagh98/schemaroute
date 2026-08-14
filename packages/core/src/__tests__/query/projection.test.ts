@@ -63,4 +63,16 @@ describe('buildProjection', () => {
       expect(projection).toBeNull()
     })
   })
+
+  describe('?fields= disabled', () => {
+    it('falls through to exclusion when fields param is disabled and no select config', () => {
+      const projection = buildProjection({ fields: 'name,price' }, SCHEMA_FIELDS, new Set(['__v']), undefined, false)
+      expect(projection).toEqual({ __v: 0 })
+    })
+
+    it('falls through to select config when fields param is disabled', () => {
+      const projection = buildProjection({ fields: 'name' }, SCHEMA_FIELDS, new Set(), ['price', 'status'], false)
+      expect(projection).toEqual({ price: 1, status: 1 })
+    })
+  })
 })

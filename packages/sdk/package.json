@@ -7,25 +7,35 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
+      "types":   "./dist/index.d.ts",
+      "import":  "./dist/index.mjs",
       "require": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist", "README.md"],
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch",
-    "lint": "tsc --noEmit"
-  },
-  "devDependencies": {
-    "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "dev":   "tsup --watch",
+    "lint":  "tsc --noEmit"
   },
   "dependencies": {
-    "@schemaroute/core": "workspace:*"
+    "@schemaroute/common": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup":       "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": ["schemaroute", "sdk", "client", "typescript", "fetch", "rest", "api"],
+  "author": "bhushan-wagh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url":  "https://github.com/Bhushan-Wagh98/schemaroute.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/Bhushan-Wagh98/schemaroute#readme",
+  "bugs": {
+    "url": "https://github.com/Bhushan-Wagh98/schemaroute/issues"
   }
 }

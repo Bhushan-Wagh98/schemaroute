@@ -1,21 +1,27 @@
 {
   "name": "schemaroute",
   "version": "1.0.0",
-  "description": "Auto-generate CRUD API routes from a Mongoose schema. Umbrella package for all @schemaroute packages.",
+  "description": "Auto-generate CRUD API routes from a Mongoose schema. Umbrella package for the SchemaRoute ecosystem.",
   "main": "index.js",
   "types": "index.d.ts",
-  "files": [
-    "index.js",
-    "index.d.ts",
-    "README.md"
-  ],
-  "keywords": ["schemaroute", "mongoose", "crud", "express", "api", "rest", "openapi", "sdk"],
+  "files": ["index.js", "index.d.ts", "README.md"],
+  "scripts": {},
+  "dependencies": {
+    "@schemaroute/common":  "workspace:*",
+    "@schemaroute/core":    "workspace:*",
+    "@schemaroute/express": "workspace:*",
+    "@schemaroute/docs":    "workspace:*",
+    "@schemaroute/sdk":     "workspace:*"
+  },
+  "keywords": ["schemaroute", "mongoose", "crud", "express", "openapi", "swagger", "sdk", "rest", "api", "typescript"],
   "author": "bhushan-wagh",
   "license": "MIT",
-  "dependencies": {
-    "@schemaroute/core": "1.0.0",
-    "@schemaroute/express": "1.0.0",
-    "@schemaroute/docs": "1.0.0",
-    "@schemaroute/sdk": "1.0.0"
+  "repository": {
+    "type": "git",
+    "url":  "https://github.com/Bhushan-Wagh98/schemaroute.git"
+  },
+  "homepage": "https://github.com/Bhushan-Wagh98/schemaroute#readme",
+  "bugs": {
+    "url": "https://github.com/Bhushan-Wagh98/schemaroute/issues"
   }
 }

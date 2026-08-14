@@ -21,17 +21,17 @@ importers:
   apps/test-api:
     dependencies:
       '@schemaroute/core':
-        specifier: workspace:*
-        version: link:../../packages/core
+        specifier: 1.0.0
+        version: 1.0.0(mongoose@8.24.3)
       '@schemaroute/docs':
-        specifier: workspace:*
-        version: link:../../packages/docs
+        specifier: 1.0.0
+        version: 1.0.0(express@4.22.2)
       '@schemaroute/express':
-        specifier: workspace:*
-        version: link:../../packages/express
+        specifier: 1.0.0
+        version: 1.0.0(express@4.22.2)(mongoose@8.24.3)
       '@schemaroute/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
+        specifier: 1.0.0
+        version: 1.0.0
       dotenv:
         specifier: ^16.0.0
         version: 16.6.1
@@ -55,7 +55,23 @@ importers:
         specifier: ^5.0.0
         version: 5.9.3
 
+  packages/common:
+    devDependencies:
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(postcss@8.5.26)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@26.2.0)
+
   packages/core:
+    dependencies:
+      '@schemaroute/common':
+        specifier: workspace:*
+        version: link:../common
     devDependencies:
       '@types/mongoose':
         specifier: ^5.11.97
@@ -78,9 +94,9 @@ importers:
 
   packages/docs:
     dependencies:
-      '@schemaroute/core':
+      '@schemaroute/common':
         specifier: workspace:*
-        version: link:../core
+        version: link:../common
       express:
         specifier: '>=4.0.0'
         version: 4.22.2
@@ -103,6 +119,9 @@ importers:
 
   packages/express:
     dependencies:
+      '@schemaroute/common':
+        specifier: workspace:*
+        version: link:../common
       '@schemaroute/core':
         specifier: workspace:*
         version: link:../core
@@ -126,11 +145,29 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@26.2.0)
 
-  packages/sdk:
+  packages/schemaroute:
     dependencies:
+      '@schemaroute/common':
+        specifier: workspace:*
+        version: link:../common
       '@schemaroute/core':
         specifier: workspace:*
         version: link:../core
+      '@schemaroute/docs':
+        specifier: workspace:*
+        version: link:../docs
+      '@schemaroute/express':
+        specifier: workspace:*
+        version: link:../express
+      '@schemaroute/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+
+  packages/sdk:
+    dependencies:
+      '@schemaroute/common':
+        specifier: workspace:*
+        version: link:../common
     devDependencies:
       tsup:
         specifier: ^8.0.0
@@ -637,6 +674,25 @@ packages:
 
   '@scarf/scarf@1.4.0':
     resolution: {integrity: sha512-xxeapPiUXdZAE3che6f3xogoJPeZgig6omHEy1rIY5WVsB3H2BHNnZH+gHG6x91SCWyQCzWGsuL2Hh3ClO5/qQ==}
+
+  '@schemaroute/core@1.0.0':
+    resolution: {integrity: sha512-ovy7E2qe76VMdIrjqHxudJxI+n6tTbM+/8skVOlLka2V1pnr74CHx7c2CIzsCc2WxOiXp1GBWElXK6ccWgSgJA==}
+    peerDependencies:
+      mongoose: ^8.24.3
+
+  '@schemaroute/docs@1.0.0':
+    resolution: {integrity: sha512-la26iuAe7ISD1Fy07mWzcHKd0UA9PTq4IUH8FmawLq2z99kzXb47sMoy1bzoJft7nIQ6uXZ6dB2oaHaqeAPIug==}
+    peerDependencies:
+      express: '>=4.0.0'
+
+  '@schemaroute/express@1.0.0':
+    resolution: {integrity: sha512-15E/5kr56FjIZuEXotUdfzk8KFq6P+Cg9DFj87w34DtCYD1bL9xHMzeMtr2Y/FieMs7Yo1Z2/xgNZapK2UU0WA==}
+    peerDependencies:
+      express: '>=4.0.0'
+      mongoose: ^8.24.3
+
+  '@schemaroute/sdk@1.0.0':
+    resolution: {integrity: sha512-H55Jxk1XrK2tQHwrz5UGMZYA4TueuHPCxFBwBVk9Wk1cMIdRDNcDBdaOvGpPl03oVdOcPCNfdFPIyW23VPyKWw==}
 
   '@sinclair/typebox@0.27.12':
     resolution: {integrity: sha512-hhyNJ+nbR6ZR7pToHvllEFun9TL0sbL+tk/ON75lo+Xas054uez98qRbsuNt7MBCyZKK4+8Yli/OAGZhmfBZ/g==}
@@ -2165,6 +2221,26 @@ snapshots:
     optional: true
 
   '@scarf/scarf@1.4.0': {}
+
+  '@schemaroute/core@1.0.0(mongoose@8.24.3)':
+    dependencies:
+      mongoose: 8.24.3
+
+  '@schemaroute/docs@1.0.0(express@4.22.2)':
+    dependencies:
+      '@schemaroute/core': link:packages/core
+      express: 4.22.2
+      swagger-ui-express: 5.0.1(express@4.22.2)
+
+  '@schemaroute/express@1.0.0(express@4.22.2)(mongoose@8.24.3)':
+    dependencies:
+      '@schemaroute/core': link:packages/core
+      express: 4.22.2
+      mongoose: 8.24.3
+
+  '@schemaroute/sdk@1.0.0':
+    dependencies:
+      '@schemaroute/core': link:packages/core
 
   '@sinclair/typebox@0.27.12': {}
 

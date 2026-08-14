@@ -1,36 +1,49 @@
 {
   "name": "@schemaroute/core",
   "version": "1.0.0",
-  "description": "Framework-agnostic core for SchemaRoute — generates routes from Mongoose schemas",
+  "description": "Framework-agnostic core for SchemaRoute — generates CRUD routes from Mongoose schemas",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
+      "types":   "./dist/index.d.ts",
+      "import":  "./dist/index.mjs",
       "require": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist", "README.md"],
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch",
-    "test": "vitest run",
-    "lint": "tsc --noEmit"
+    "dev":   "tsup --watch",
+    "test":  "vitest run",
+    "lint":  "tsc --noEmit"
+  },
+  "dependencies": {
+    "@schemaroute/common": "workspace:*"
   },
   "devDependencies": {
-    "@types/mongoose": "^5.11.97",
+    "@types/mongoose":    "^5.11.97",
     "@vitest/coverage-v8": "^1.0.0",
-    "mongoose": "^8.0.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.0.0",
-    "vitest": "^1.0.0"
+    "mongoose":           "^8.0.0",
+    "tsup":               "^8.0.0",
+    "typescript":         "^5.0.0",
+    "vitest":             "^1.0.0"
   },
   "peerDependencies": {
     "mongoose": ">=7.0.0"
+  },
+  "keywords": ["schemaroute", "mongoose", "crud", "rest", "api", "express", "typescript"],
+  "author": "bhushan-wagh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url":  "https://github.com/Bhushan-Wagh98/schemaroute.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/Bhushan-Wagh98/schemaroute#readme",
+  "bugs": {
+    "url": "https://github.com/Bhushan-Wagh98/schemaroute/issues"
   }
 }
