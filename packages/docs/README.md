@@ -98,21 +98,30 @@ Given a `ProductSchema` with fields `name`, `price`, `stock`, `status`, `categor
 ### Paths
 
 ```
-GET    /products           — List all products
-POST   /products           — Create a product
-GET    /products/{id}      — Get a product by ID
-PUT    /products/{id}      — Update a product by ID
-DELETE /products/{id}      — Delete a product by ID
+GET    /products                — List all products
+POST   /products                — Create a product
+GET    /products/{id}           — Get a product by ID
+PUT    /products/{id}           — Update a product by ID
+PATCH  /products/{id}           — Partially update a product by ID
+DELETE /products/{id}           — Delete a product by ID
+
+# soft delete only (softDelete: true + routes.restore/purge.enabled: true)
+POST   /products/{id}/restore   — Restore a soft-deleted product
+DELETE /products/{id}/purge     — Permanently delete a soft-deleted product
+
+# prefix: '/v1'
+GET    /v1/products             — List all products
 ```
 
 ### Custom routes
 
 Custom routes defined in `config.custom` are also included in the spec. The summary is derived from the path segment (e.g. `/products/out-of-stock` → `Get out of stock products`).
 
-### Query parameters on `GET /products`
+### Query parameters
 
-All filter, sort, search, pagination, fields, and populate params are documented automatically based on the resource config:
+All filter, sort, search, pagination, fields, and populate params are documented automatically based on the resource config.
 
+`GET /products` (getAll):
 ```
 ?status=active
 ?sort=price&order=desc
@@ -120,6 +129,12 @@ All filter, sort, search, pagination, fields, and populate params are documented
 ?search=laptop
 ?page=1&limit=10
 ?cursor=<id>&limit=10
+?populate=category
+```
+
+`GET /products/{id}` (getOne):
+```
+?fields=name,price
 ?populate=category
 ```
 

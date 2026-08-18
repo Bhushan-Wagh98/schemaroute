@@ -4,11 +4,13 @@
  * complete OpenAPI 3.0 specification object.
  *
  * For each registered resource it generates:
- *   - A reusable schema component under `components/schemas`
- *   - Path items for every enabled CRUD route
+ *   - A reusable schema component under `components/schemas` (respects `expose` whitelist)
+ *   - Path items for every enabled CRUD route including PATCH, restore, and purge
  *   - Query parameters for getAll (filter, sort, pagination, search, fields, populate)
- *   - Request body schemas for create and update
+ *   - Query parameters for getOne (fields, populate)
+ *   - Request body schemas for create/update/patch (respects `writable` whitelist)
  *   - Standard response envelopes (200, 201, 400, 404, 422, 500)
+ *   - Prefix applied to all paths when `config.prefix` is set
  */
 
 import type { SchemaRouteInstance, ParsedField, FieldType } from '@schemaroute/common'
@@ -72,8 +74,10 @@ function buildSchemaComponent(instance: SchemaRouteInstance): OpenAPISchema {
     _id: { type: 'string', description: 'MongoDB ObjectId' },
   }
   const requiredFields: string[] = []
+  const expose = instance.config.expose
 
   for (const field of instance.parsedSchema.fields) {
+    if (expose && !expose.includes(field.name)) continue
     properties[field.name] = parsedFieldToSchema(field)
     if (field.required) requiredFields.push(field.name)
   }
@@ -301,8 +305,10 @@ function buildGetAllParameters(instance: SchemaRouteInstance): OpenAPIParameter[
 function buildRequestBody(instance: SchemaRouteInstance, isCreate: boolean): OpenAPIRequestBody {
   const properties: Record<string, OpenAPISchema> = {}
   const requiredFields: string[] = []
+  const writable = instance.config.writable
 
   for (const field of instance.parsedSchema.fields) {
+    if (writable && !writable.includes(field.name)) continue
     properties[field.name] = parsedFieldToSchema(field)
     if (isCreate && field.required) requiredFields.push(field.name)
   }
@@ -343,7 +349,8 @@ function buildPathItems(
 ): Record<string, OpenAPIPathItem> {
   const paths: Record<string, OpenAPIPathItem> = {}
   const tag          = instance.resourceName
-  const basePath     = `/${instance.resourceName}`
+  const prefix       = instance.config.prefix ? instance.config.prefix.replace(/\/$/, '') : ''
+  const basePath     = `${prefix}/${instance.resourceName}`
   const idPath       = `${basePath}/{id}`
   const routeConfig  = instance.config.routes ?? {}
 
@@ -393,11 +400,24 @@ function buildPathItems(
   // ── GET /:resource/:id ────────────────────────────────────────────────────
   if (routeConfig.getOne?.enabled !== false) {
     paths[idPath] ??= {}
+    const getOneParams: OpenAPIParameter[] = [idParameter]
+    getOneParams.push({
+      name: 'fields', in: 'query', required: false,
+      description: 'Comma-separated list of fields to include',
+      schema: { type: 'string' },
+    })
+    if (instance.parsedSchema.refFields.length > 0) {
+      getOneParams.push({
+        name: 'populate', in: 'query', required: false,
+        description: `Comma-separated ref fields to populate (e.g. ${instance.parsedSchema.refFields.join(',')})`,
+        schema: { type: 'string' },
+      })
+    }
     const getOneOp: OpenAPIOperation = {
       summary:     `Get a ${singularTag} by ID`,
       operationId: `getOne_${tag}`,
       tags:        [tag],
-      parameters:  [idParameter],
+      parameters:  getOneParams,
       responses: {
         '200': successSingleResponse(schemaRef),
         '400': errorResponse('Invalid id format'),
@@ -426,6 +446,26 @@ function buildPathItems(
       },
     }
     paths[idPath]!.put = updateOp
+  }
+
+  // ── PATCH /:resource/:id ─────────────────────────────────────────────────
+  if (routeConfig.patch?.enabled !== false) {
+    paths[idPath] ??= {}
+    const patchOp: OpenAPIOperation = {
+      summary:     `Partially update a ${singularTag} by ID`,
+      operationId: `patch_${tag}`,
+      tags:        [tag],
+      parameters:  [idParameter],
+      requestBody: buildRequestBody(instance, false),
+      responses: {
+        '200': successSingleResponse(schemaRef),
+        '400': errorResponse('Invalid id format'),
+        '404': errorResponse('Resource not found'),
+        '422': validationErrorResponse(),
+        '500': errorResponse('Internal server error'),
+      },
+    }
+    paths[idPath]!.patch = patchOp
   }
 
   // ── DELETE /:resource/:id ─────────────────────────────────────────────────
@@ -457,6 +497,45 @@ function buildPathItems(
       },
     }
     paths[idPath]!.delete = deleteOp
+  }
+
+  // ── POST /:resource/:id/restore ──────────────────────────────────────────
+  if (instance.config.softDelete && routeConfig.restore?.enabled) {
+    const restorePath = `${idPath}/restore`
+    paths[restorePath] ??= {}
+    paths[restorePath]!.post = {
+      summary:     `Restore a soft-deleted ${singularTag}`,
+      operationId: `restore_${tag}`,
+      tags:        [tag],
+      parameters:  [idParameter],
+      responses: {
+        '200': successSingleResponse(schemaRef),
+        '400': errorResponse('Invalid id format'),
+        '404': errorResponse('Resource not found or not deleted'),
+        '500': errorResponse('Internal server error'),
+      },
+    }
+  }
+
+  // ── DELETE /:resource/:id/purge ───────────────────────────────────────────
+  if (instance.config.softDelete && routeConfig.purge?.enabled) {
+    const purgePath = `${idPath}/purge`
+    paths[purgePath] ??= {}
+    paths[purgePath]!.delete = {
+      summary:     `Permanently delete a soft-deleted ${singularTag}`,
+      operationId: `purge_${tag}`,
+      tags:        [tag],
+      parameters:  [idParameter],
+      responses: {
+        '200': {
+          description: 'Purged successfully',
+          content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object', properties: { id: { type: 'string' } } } } } } },
+        },
+        '400': errorResponse('Invalid id format'),
+        '404': errorResponse('Resource not found or not deleted'),
+        '500': errorResponse('Internal server error'),
+      },
+    }
   }
 
   // ── Custom routes ─────────────────────────────────────────────────────────

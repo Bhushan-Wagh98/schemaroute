@@ -2,87 +2,113 @@
 
 [![npm](https://img.shields.io/npm/v/schemaroute)](https://www.npmjs.com/package/schemaroute)
 [![license](https://img.shields.io/npm/l/schemaroute)](./LICENSE)
-[![tests](https://img.shields.io/badge/tests-371%20passing-brightgreen)](#testing)
+[![tests](https://img.shields.io/badge/tests-486%20passing-brightgreen)](#testing)
 [![coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)](#testing)
 
-Auto-generate a fully working CRUD API from a Mongoose schema. No boilerplate. No repetition.
+**Automatic REST APIs for Mongoose resources. No controllers. No route files. No boilerplate.**
 
 ```js
-createAPI(app, UserSchema, 'users', {}, mongoose)
+createAPI(app, ProductSchema, 'products', {}, mongoose)
 
-// GET    /users
-// GET    /users/:id
-// POST   /users
-// PUT    /users/:id
-// PATCH  /users/:id
-// DELETE /users/:id
+// GET    /products          — list, filter, sort, search, paginate, populate
+// GET    /products/:id      — single document, field selection, populate
+// POST   /products          — create with validation and lifecycle hooks
+// PUT    /products/:id      — full replacement
+// PATCH  /products/:id      — partial update via $set
+// DELETE /products/:id      — hard or soft delete
 ```
 
-SchemaRoute automates CRUD-heavy resources without trying to become your application framework. Complex domain logic stays in your own controllers. Auth stays in your own middleware. SchemaRoute owns only the routes you give it.
+One line. A fully working REST API — filtering, sorting, pagination, search, validation, population, error handling — all from your Mongoose schema.
 
-> Trying to push complex orchestration logic into hooks is a sign that the resource has outgrown SchemaRoute — not a sign that SchemaRoute needs more features.
-
----
-
-## What is actually exposed?
-
-This is the first question any developer should ask before installing a library that touches their database. Here are the defaults and the controls:
-
-**By default, all schema fields are returned.** Use `expose` to whitelist exactly which fields leave the API. Use `writable` to whitelist which fields clients can write:
-
-```js
-createAPI(app, UserSchema, 'users', {
-  expose:   ['name', 'email', 'role'],      // password, tokens — never sent
-  writable: ['name', 'email', 'tenantId'],  // role, createdBy — never writable by clients
-}, mongoose)
-```
-
-**By default, all routes are open.** Add middleware for auth:
+> **SchemaRoute does not decide who can access your data. Your middleware does.**
 
 ```js
 routes: {
   create: { middleware: [requireAuth] },
-  update: { middleware: [requireAuth] },
   delete: { middleware: [requireAuth, requireAdmin] },
 }
+
+---
+
+## The real value
+
+For a typical app with 10 resources, you're looking at:
+
+```
+Without SchemaRoute
+
+10 controllers      × ~80 lines  =  800 lines
+10 route files      × ~30 lines  =  300 lines
+10 validators       × ~20 lines  =  200 lines
+10 query parsers    × ~40 lines  =  400 lines
+10 swagger files    × ~50 lines  =  500 lines
+                                  ─────────────
+                                   2,200 lines to write, test, and maintain
+
+With SchemaRoute
+
+10 × createAPI()                 =  10 lines
 ```
 
-**By default, any schema field can be filtered.** Enum fields are validated — `?status=badvalue` returns `400`. Non-schema fields are ignored. Type coercion is automatic — `?price=99` produces `{ price: 99 }` (number), not a string.
+And when you add an 11th resource, it's one more line — not another 220.
 
-**Population is controlled server-side.** A client sending `?populate=category` only works if the field is a Mongoose ref. You can restrict which fields come back from the populated document:
+Unlike AI-generated boilerplate, SchemaRoute stays consistent across every resource, stays maintained as a dependency, and gives you filtering, pagination, search, population, soft delete, and OpenAPI docs without writing or maintaining any of it.
+
+---
+
+## SchemaRoute does not decide who can access your data
+
+This is the first question any developer should ask before installing a library that touches their database.
+
+**SchemaRoute automates mechanics, not ownership.**
+
+Your middleware controls access. SchemaRoute never bypasses it:
+
+```js
+createAPI(app, ProductSchema, 'products', {
+  routes: {
+    create: { middleware: [requireAuth] },
+    update: { middleware: [requireAuth] },
+    delete: { middleware: [requireAuth, requireAdmin] },
+  },
+}, mongoose)
+```
+
+**Your `expose` whitelist controls what leaves the API.** Sensitive fields never leak:
+
+```js
+createAPI(app, UserSchema, 'users', {
+  expose:   ['name', 'email', 'role'],     // password, tokens — never sent
+  writable: ['name', 'email', 'tenantId'], // role, createdBy — never writable by clients
+}, mongoose)
+```
+
+**Population is controlled server-side.** A client sending `?populate=category` only works if the field is a Mongoose ref. You restrict which fields come back:
 
 ```js
 populate: [{ path: 'category', select: 'name slug' }]  // password never leaks through populate
 ```
 
-**Multitenancy via scope.** Every query, create, update, patch, and delete is automatically scoped — cross-tenant reads return `404`, not `403`, so other tenants' existence is not revealed:
+**Multitenancy via scope.** Every query, create, update, patch, and delete is automatically scoped — cross-tenant reads return `404`, not `403`:
 
 ```js
 scope: (req) => ({ tenantId: req.headers['x-tenant-id'] })
 ```
 
-**You can pass a Mongoose Model instead of a Schema.** SchemaRoute extracts the schema and connection automatically — no 5th argument needed:
+**To see exactly what SchemaRoute registered**, use `inspectAPI`:
 
-```js
-const Product = mongoose.model('Product', ProductSchema)
-createAPI(app, Product, 'products', {})  // ← no mongoose 5th arg needed
+```
+GET    /products           public
+POST   /products           middleware: [requireAuth]
+PUT    /products/:id       middleware: [requireAuth]
+PATCH  /products/:id       middleware: [requireAuth]
+DELETE /products/:id       middleware: [requireAuth, requireAdmin]
+
+Exposed:  name, price, status, category
+Writable: name, price, status, category
 ```
 
-**To see exactly what SchemaRoute is doing**, use `inspectAPI` or enable debug logging:
-
-```js
-import { inspectAPI } from '@schemaroute/core'
-
-const instance = createAPI(app, ProductSchema, 'products', { debug: true }, mongoose)
-inspectAPI(instance)
-// GET    /products           public
-// POST   /products           middleware: [requireAuth]
-// ...
-// Exposed:  name, price, status
-// Writable: name, price, status
-```
-
-**To escape the abstraction entirely**, use custom routes or plain controllers alongside SchemaRoute — they coexist on the same Express app. SchemaRoute is for CRUD-heavy resources. Complex domain logic belongs in your own handlers.
+No magic. Everything is explicit and inspectable.
 
 ---
 
@@ -96,31 +122,6 @@ npm install schemaroute
 npm install @schemaroute/core @schemaroute/express
 npm install @schemaroute/docs   # OpenAPI + Swagger UI
 npm install @schemaroute/sdk    # TypeScript client SDK
-```
-
----
-
-## How the DB connection works
-
-SchemaRoute does not connect to MongoDB. You connect, then pass your mongoose instance to `createAPI`. This ensures SchemaRoute uses the same connection you opened — important when using Atlas or a custom connection string.
-
-```js
-// ✅ correct — createAPI called after connect resolves, mongoose instance passed
-mongoose.connect(process.env.MONGO_URI).then(() => {
-  createAPI(app, ProductSchema, 'products', {}, mongoose)
-  app.listen(3000)
-})
-
-// ❌ wrong — throws a clear error before any routes are registered
-createAPI(app, ProductSchema, 'products', {}, mongoose)
-mongoose.connect(process.env.MONGO_URI)  // too late
-```
-
-If you call `createAPI` before connecting, you get an immediate error — not a silent failure:
-
-```
-[schemaroute] createAPI('products') was called while mongoose connection is "disconnected".
-You must call createAPI inside the .then() callback of mongoose.connect().
 ```
 
 ---
@@ -149,37 +150,54 @@ mongoose.connect(process.env.MONGO_URI).then(() => {
 })
 ```
 
-That's it. You now have a fully working REST API with:
-
-- ✅ Input validation from the schema
-- ✅ Filtering, sorting, field selection
-- ✅ Page and cursor pagination
-- ✅ Full-text search
-- ✅ Population of refs with optional field selection
-- ✅ Partial updates via PATCH
-- ✅ Soft delete with automatic read exclusion
-- ✅ Soft delete restore (`POST /:id/restore`) and permanent purge (`DELETE /:id/purge`)
-- ✅ Multitenancy via scope
-- ✅ Standard error responses
-- ✅ Expose field whitelist — DB-only fields never leak
-- ✅ Write field whitelist (`writable`) — server-controlled fields can never be set by clients
-- ✅ API versioning via prefix
-- ✅ Body size limiting per resource
-- ✅ Full request context in hooks (`ctx.req`, `ctx.user`, `ctx.headers`)
-- ✅ Pass a Mongoose Model directly — schema and connection extracted automatically
-- ✅ `inspectAPI` — print a route table to stdout, no magic
+That's it. You now have a fully working REST API with filtering, sorting, pagination, search, validation, population, and error handling — all from your schema.
 
 ---
 
-## The Problem
+## Capabilities — add only what you need
 
-Every Node.js developer repeats the same steps for every resource:
+SchemaRoute is layered. Start with zero config and add only what your resource needs.
 
+### Level 1 — CRUD from your schema
+
+```js
+createAPI(app, ProductSchema, 'products', {}, mongoose)
 ```
-schema → model → controller → routes → validation → middleware → docs → SDK
+
+Gives you GET, POST, PUT, PATCH, DELETE with ObjectId validation, enum filter validation, type coercion, and standard error responses.
+
+### Level 2 — Control access, fields, and queries
+
+```js
+createAPI(app, ProductSchema, 'products', {
+  expose:      ['name', 'price', 'status'],   // read whitelist
+  writable:    ['name', 'price', 'stock'],     // write whitelist
+  pagination:  'page',
+  search:      'all-fields',
+  populate:    [{ path: 'category', select: 'name slug' }],
+  scope:       (req) => ({ tenantId: req.headers['x-tenant-id'] }),
+  routes: {
+    create: { middleware: [requireAuth], validation: true },
+    delete: { middleware: [requireAuth, requireAdmin] },
+  },
+}, mongoose)
 ```
 
-SchemaRoute eliminates all of that. And unlike AI-generated boilerplate, it stays consistent across every resource, stays maintained as a dependency, and gives you filtering, pagination, search, population, soft delete, and OpenAPI docs without writing or maintaining any of it.
+### Level 3 — OpenAPI docs and typed SDK
+
+```js
+import { generateOpenAPISpec, mountSwaggerUI } from '@schemaroute/docs'
+import { createSDK } from '@schemaroute/sdk'
+
+const spec = generateOpenAPISpec([productsInstance, categoriesInstance], {
+  title: 'My API', version: '1.0.0', serverUrl: 'http://localhost:3000',
+})
+mountSwaggerUI(app, spec)
+// → Swagger UI at http://localhost:3000/api-docs
+
+const api = createSDK('http://localhost:3000', [productsInstance, categoriesInstance])
+const { data } = await api.products.getAll({ page: 1, limit: 10 })
+```
 
 ---
 
@@ -192,121 +210,87 @@ SchemaRoute owns only the CRUD routes you give it. Everything else on the same a
 createAPI(app, ProductSchema, 'products', {}, mongoose)
 createAPI(app, CategorySchema, 'categories', {}, mongoose)
 
-// Your own handlers coexist on the same app — no conflict
+// Your own handlers coexist — no conflict
 app.post('/products/:id/publish', requireAuth, publishProduct)
 app.get('/reports/summary', requireAdmin, generateReport)
 ```
 
-Start with the CRUD-heavy resources. Keep complex domain logic in your own handlers. Add more resources to SchemaRoute over time as confidence grows:
+**You do not need to migrate your existing application.** Add SchemaRoute to new resources only. Keep complex domain logic in your own handlers:
 
 ```
-/users       → your existing controller  (complex auth — keep it)
-/orders      → your existing controller  (payment logic — keep it)
-/products    → SchemaRoute
-/categories  → SchemaRoute
-/reviews     → SchemaRoute               (new resource — zero boilerplate)
+Existing application
+  │
+  ├── /users    → your controller  (complex auth — keep it)
+  ├── /orders   → your controller  (payment logic — keep it)
+  │
+  ├── /products    → SchemaRoute   (new or migrated)
+  ├── /categories  → SchemaRoute   (new or migrated)
+  └── /reviews     → SchemaRoute   (new resource — zero boilerplate)
+```
+
+The adoption risk is low because SchemaRoute never touches routes you don't give it.
+
+---
+
+## How the DB connection works
+
+SchemaRoute does not connect to MongoDB. You connect, then pass your mongoose instance:
+
+```js
+// ✅ correct
+mongoose.connect(process.env.MONGO_URI).then(() => {
+  createAPI(app, ProductSchema, 'products', {}, mongoose)
+  app.listen(3000)
+})
+
+// ❌ wrong — throws immediately before any routes are registered
+createAPI(app, ProductSchema, 'products', {}, mongoose)
+mongoose.connect(process.env.MONGO_URI)
+```
+
+You can also pass a Mongoose Model directly — schema and connection are extracted automatically:
+
+```js
+const Product = mongoose.model('Product', ProductSchema)
+createAPI(app, Product, 'products', {})  // no mongoose 5th arg needed
 ```
 
 ---
 
-## SchemaRoute has opinions. Here's every one of them.
-
-Adopting SchemaRoute means adopting a set of API behaviors. They are all configurable or escapable — nothing is imposed silently.
-
-| Behavior | Default | How to change it |
-|---|---|---|
-| Response envelope | `{ success, data, meta }` | `response: (data, meta) => ({ ... })` — any shape you want |
-| Validation | off | `routes.create: { validation: true }` — opt in per route. Off by default because Mongoose validates on save — SchemaRoute validation runs *before* the DB write and returns structured `422` errors with field-level detail, which is additive, not duplicative. |
-| All routes active | GET, POST, PUT, PATCH, DELETE all registered | `routes.delete: { enabled: false }` — disable any route |
-| All routes open | no auth | `routes.create: { middleware: [requireAuth] }` — your middleware |
-| All fields returned | full document | `expose: ['name', 'price']` — whitelist what leaves the API |
-| Any field filterable | `?status=active` works on all schema fields | non-schema fields are ignored; enum values are validated |
-| Pagination | off | `pagination: 'page'` or `'cursor'` or `'both'` |
-| Search | off | `search: 'all-fields'` or `'single-field'` |
-| Population | off | `populate: [{ path: 'category', select: 'name' }]` |
-| Sort | off | `routes.getAll: { sort: true }` |
-| Soft delete | hard delete | `softDelete: true` — sets `deletedAt`/`isDeleted` instead; opt-in `restore` and `purge` routes complete the lifecycle |
-| Scope | none | `scope: (req) => ({ tenantId: req.headers['x-tenant-id'] })` |
-| Error shape | `{ success: false, error, details }` | consistent across all routes — not currently overridable |
-| PATCH semantics | `$set` — only sent fields written | not configurable — use PUT for full replacement |
-| ObjectId validation | invalid IDs return `400` | not configurable — always on |
-| Enum filter validation | invalid enum values return `400` | not configurable — always on |
-| Type coercion in filters | `?price=99` → `{ price: 99 }` (number) | not configurable — always on |
-| Body size limit | Express default | `maxBodySize: '50kb'` — per resource |
-| Rate limiting | none | `rateLimit: { max: 100, window: '1m' }` or bring your own |
-| Debug logging | silent | `debug: true` — logs model registration and handler activity |
-
-The items marked "not configurable" are intentional constraints, not oversights. If any of them conflict with your requirements, use a custom route or a plain controller for that resource instead — SchemaRoute and your own handlers coexist on the same app without conflict.
-
----
-
-## Features
-
-### Querying out of the box
+## Querying out of the box
 
 Every `GET /resource` endpoint supports:
 
 | Query Param | Example | Description |
 |---|---|---|
-| Field filter | `?status=active&category=abc` | Filter by any schema field. Returns `400` if value is not a valid enum member |
-| Sort | `?sort=price&order=desc` | Sort by any field. Returns `400` for unknown field names |
-| Fields | `?fields=name,price,stock` | Select specific fields on `getAll` and `getOne`. Returns `400` for unknown field names. Ref fields not listed are not populated |
-| Search | `?search=laptop` | Search across all string fields. Empty/whitespace values are ignored |
+| Field filter | `?status=active&category=abc` | Filter by any schema field. Returns `400` for invalid enum values |
+| Sort | `?sort=price&order=desc` | Sort by any field. Returns `400` for unknown fields |
+| Fields | `?fields=name,price,stock` | Select specific fields on `getAll` and `getOne` |
+| Search | `?search=laptop` | Search across all string fields |
 | Search field | `?search=laptop&searchField=name` | Search in a specific field |
-| Page pagination | `?page=2&limit=10` | Offset-based. Returns `400` if `page < 1` or `limit` is non-numeric/non-positive |
-| Cursor pagination | `?cursor=<id>&limit=10` | Cursor-based pagination |
-| Populate | `?populate=category` | Populate Mongoose refs on `getAll` and `getOne` |
-
-### Response envelope
-
-```json
-{
-  "success": true,
-  "data": [...],
-  "meta": {
-    "page": 1,
-    "limit": 10,
-    "total": 42,
-    "totalPages": 5
-  }
-}
-```
-
-### Validation errors
-
-```json
-{
-  "success": false,
-  "error": "Validation failed",
-  "details": [
-    { "field": "name",  "message": "name is required" },
-    { "field": "price", "message": "price must be a number" }
-  ]
-}
-```
+| Page pagination | `?page=2&limit=10` | Offset-based |
+| Cursor pagination | `?cursor=<id>&limit=10` | Cursor-based |
+| Populate | `?populate=category` | Populate Mongoose refs |
 
 ---
 
 ## Full Config Example
 
-All options are optional. Start with zero config and add only what you need.
-
 ```js
 createAPI(app, ProductSchema, 'products', {
 
-  // resource-level defaults
   pagination:  'page',
   search:      'all-fields',
-  populate:    [{ path: 'category', select: 'name slug' }],  // restrict populated fields
+  populate:    [{ path: 'category', select: 'name slug' }],
   exclude:     ['__v'],
-  expose:      ['name', 'price', 'status', 'category'],      // whitelist — only these fields ever leave the API
-  writable:    ['name', 'price', 'stock', 'status', 'category'], // whitelist — only these fields accepted in writes
-  prefix:      '/v1',                                        // all routes registered under /v1/products
-  maxBodySize: '100kb',                                      // reject POST/PUT/PATCH bodies over this size
-  softDelete:  true,                                         // soft delete instead of hard delete
-  scope:       (req) => ({ tenantId: req.headers['x-tenant-id'] }),  // multitenancy
-  transform:   (doc) => ({ id: doc._id, ...doc }),           // reshape every response doc
-  debug:       false,                                        // set true to enable diagnostic logging
+  expose:      ['name', 'price', 'status', 'category'],
+  writable:    ['name', 'price', 'stock', 'status', 'category'],
+  prefix:      '/v1',
+  maxBodySize: '100kb',
+  softDelete:  true,
+  scope:       (req) => ({ tenantId: req.headers['x-tenant-id'] }),
+  transform:   (doc) => ({ id: doc._id, ...doc }),
+  debug:       false,
 
   routes: {
     getAll: {
@@ -325,30 +309,18 @@ createAPI(app, ProductSchema, 'products', {
       beforeCreate: async (data, ctx) => {
         data.slug      = data.name.toLowerCase().replace(/\s+/g, '-')
         data.createdBy = ctx.user?.id
-        // ctx.req is the raw framework request — access ip, socket, custom props
-        console.log('created from ip:', ctx.req.ip)
         return data
       },
       afterCreate: async (doc) => {
         await notifySubscribers(doc)
       },
     },
-    update: {
-      validation: true,  // PUT — all required fields must be present
-      middleware: [requireAuth],
-    },
-    patch: {
-      // PATCH — only sent fields are written, absent fields stay unchanged
-      // validation: true only validates fields present in the body
-      middleware: [requireAuth],
-    },
+    update: { validation: true, middleware: [requireAuth] },
+    patch:  { middleware: [requireAuth] },
     delete: {
       middleware: [requireAuth, requireAdmin],
-      beforeDelete: async (doc) => {
-        await cleanupRelated(doc._id)
-      },
+      beforeDelete: async (doc) => { await cleanupRelated(doc._id) },
     },
-    // restore and purge — only active when softDelete: true
     restore: { enabled: true, middleware: [requireAuth] },
     purge:   { enabled: true, middleware: [requireAuth, requireAdmin] },
   },
@@ -362,20 +334,41 @@ createAPI(app, ProductSchema, 'products', {
         res.json({ success: true, data: items })
       },
     },
-    {
-      // HEAD — returns headers only, no body
-      // useful for existence checks without transferring data
-      method:  'HEAD',
-      path:    '/products/:id/exists',
-      handler: async (req, res) => {
-        const exists = await Product.exists({ _id: req.params.id })
-        res.status(exists ? 200 : 404).end()
-      },
-    },
   ],
 
 }, mongoose)
 ```
+
+---
+
+## SchemaRoute has opinions. Here's every one of them.
+
+Adopting SchemaRoute means adopting a set of API behaviors. They are all configurable or escapable — nothing is imposed silently.
+
+| Behavior | Default | How to change it |
+|---|---|---|
+| Response envelope | `{ success, data, meta }` | `response: (data, meta) => ({ ... })` |
+| Validation | off | `routes.create: { validation: true }` — opt in per route |
+| All routes active | GET, POST, PUT, PATCH, DELETE | `routes.delete: { enabled: false }` |
+| All routes open | no auth | `routes.create: { middleware: [requireAuth] }` |
+| All fields returned | full document | `expose: ['name', 'price']` |
+| Any field filterable | all schema fields | non-schema fields ignored; enum values validated |
+| Pagination | off | `pagination: 'page' \| 'cursor' \| 'both'` |
+| Search | off | `search: 'all-fields' \| 'single-field'` |
+| Population | off | `populate: [{ path: 'category', select: 'name' }]` |
+| Sort | off | `routes.getAll: { sort: true }` |
+| Soft delete | hard delete | `softDelete: true` |
+| Scope | none | `scope: (req) => ({ tenantId: ... })` |
+| Error shape | `{ success: false, error, details }` | consistent across all routes — not overridable |
+| PATCH semantics | `$set` — only sent fields written | not configurable — use PUT for full replacement |
+| ObjectId validation | invalid IDs return `400` | not configurable — always on |
+| Enum filter validation | invalid enum values return `400` | not configurable — always on |
+| Type coercion in filters | `?price=99` → number | not configurable — always on |
+| Body size limit | Express default | `maxBodySize: '50kb'` |
+| Rate limiting | none | `rateLimit: { max: 100, window: '1m' }` |
+| Debug logging | silent | `debug: true` |
+
+The items marked "not configurable" are intentional constraints. If any conflict with your requirements, use a custom route or a plain controller for that resource — SchemaRoute and your own handlers coexist without conflict.
 
 ---
 
@@ -387,43 +380,6 @@ Global config (defaults)
 Resource config (per schema)
     ↓ overridden by
 Route config (per route)   ← most specific, always wins
-```
-
----
-
-## OpenAPI Docs
-
-```js
-import { generateOpenAPISpec, mountSwaggerUI } from '@schemaroute/docs'
-
-const productsInstance   = createAPI(app, ProductSchema,  'products',  {}, mongoose)
-const categoriesInstance = createAPI(app, CategorySchema, 'categories', {}, mongoose)
-
-const spec = generateOpenAPISpec([productsInstance, categoriesInstance], {
-  title:     'My API',
-  version:   '1.0.0',
-  serverUrl: 'http://localhost:3000',
-})
-
-mountSwaggerUI(app, spec)
-// → Swagger UI at http://localhost:3000/api-docs
-```
-
----
-
-## TypeScript SDK
-
-```ts
-import { createSDK } from '@schemaroute/sdk'
-
-const api = createSDK('http://localhost:3000', [productsInstance, categoriesInstance])
-
-const { data, meta } = await api.products.getAll({ page: 1, limit: 10, sort: 'price' })
-const product        = await api.products.getOne('abc123')
-const created        = await api.products.create({ name: 'Laptop', price: 999, stock: 5 })
-const updated        = await api.products.update('abc123', { price: 899 })   // PUT — full replace
-const patched        = await api.products.patch('abc123', { price: 799 })    // PATCH — partial update
-await api.products.delete('abc123')
 ```
 
 ---
@@ -487,10 +443,27 @@ schemaroute-lib/
 │   ├── common/         ← shared types (zero runtime deps)
 │   └── schemaroute/    ← umbrella package
 ├── apps/
-│   ├── test-api/           ← Express test server (not published)
-│   └── test-api fastify/   ← Fastify test server (not published)
+│   ├── test-api/           ← Express integration test app (not published)
+│   └── test-api fastify/   ← Fastify integration test app (not published)
 └── ARCHITECTURE.md
 ```
+
+---
+
+## Testing
+
+```bash
+pnpm test   # runs all 486 tests across all packages
+```
+
+| Suite | Count | What it covers |
+|---|---|---|
+| Unit tests (`packages/*/src/__tests__/`) | 371 | Schema parser, validator, query handler, route builder, soft delete, expose, writable, inspect, pagination, search, sort, filter, projection, populate, OpenAPI spec generator |
+| Integration tests (`apps/test-api/src/__tests__/`) | 115 | Full HTTP request/response cycle against a real Express app and real MongoDB (in-process, no external connection required) |
+
+Integration tests use `mongodb-memory-server` — no Atlas account or connection string needed. `pnpm test` runs everything.
+
+See [`apps/test-api`](./apps/test-api) for the full list of what the integration tests cover.
 
 ---
 
@@ -501,7 +474,8 @@ schemaroute-lib/
 | Turborepo | Monorepo build orchestration |
 | tsup | ESM + CJS dual build |
 | TypeScript strict | Type safety |
-| Vitest | Unit tests (371 tests, 99% coverage) |
+| Vitest | Unit + integration tests (486 tests, 99% coverage) |
+| mongodb-memory-server | In-process MongoDB for integration tests — no external connection needed |
 | pnpm | Package manager |
 
 ---
