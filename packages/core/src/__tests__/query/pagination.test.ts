@@ -18,14 +18,14 @@ describe('resolvePagination', () => {
       expect(result!.limit).toBe(100)
     })
 
-    it('defaults page to 1 when page param is invalid', () => {
+    it('returns error when page param is invalid (non-numeric)', () => {
       const result = resolvePagination({ page: 'abc' }, 'page')
-      expect(result).toMatchObject({ type: 'page', page: 1 })
+      expect(result).toMatchObject({ type: 'error' })
     })
 
-    it('clamps page to minimum of 1', () => {
+    it('returns error when page param is below 1', () => {
       const result = resolvePagination({ page: '-5' }, 'page')
-      expect(result!.page).toBe(1)
+      expect(result).toMatchObject({ type: 'error' })
     })
   })
 

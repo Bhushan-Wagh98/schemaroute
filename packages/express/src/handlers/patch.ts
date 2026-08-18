@@ -1,21 +1,20 @@
 /**
- * @file handlers/update.ts
- * @description Factory for the `PUT /:resource/:id` document update handler.
- * Validates the ObjectId format, optionally validates the request body,
- * runs lifecycle hooks, and returns the updated document.
+ * @file handlers/patch.ts
+ * @description Factory for the `PATCH /:resource/:id` partial update handler.
+ * Unlike PUT, only the fields present in the request body are updated — missing
+ * fields are left unchanged in the document.
  *
  * Hook execution order:
- *   1. `beforeUpdate` — runs first so hook-injected fields (e.g. updatedBy, slug)
- *      are present when the validator checks required fields
- *   2. Schema validation (when `validation: true`)
- *   3. Persist to MongoDB
+ *   1. `beforeUpdate` — runs first so hook-injected fields are present before validation
+ *   2. Schema validation (when `validation: true`) — only validates provided fields
+ *   3. Persist to MongoDB via `$set`
  *   4. `afterUpdate` — receives the saved document for side-effects
  */
 
 import type { Request, Response } from 'express'
 import type { Model } from 'mongoose'
 import { validate } from '@schemaroute/core'
-import type { ParsedSchema, ResourceConfig, UpdateRouteConfig } from '@schemaroute/core'
+import type { ParsedSchema, ResourceConfig, PatchRouteConfig } from '@schemaroute/core'
 import { isValidObjectId } from '@schemaroute/core'
 import { buildRequestContext } from '../http/context'
 import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
@@ -23,19 +22,19 @@ import { applyTransformWithValidation, applyExposeFilter } from '../db/document'
 import type { Logger } from '../logger'
 
 /**
- * Creates the `PUT /:resource/:id` Express handler.
+ * Creates the `PATCH /:resource/:id` Express handler.
  *
  * @param resolveModel   - Lazy model factory called at request time.
- * @param parsedSchema   - Parsed schema used for body validation.
+ * @param parsedSchema   - Parsed schema used for partial body validation.
  * @param routeConfig    - Route-level config (overrides resource-level defaults).
  * @param resourceConfig - Resource-level config (defaults applied to all routes).
  */
-export function makeUpdateHandler(
-  resolveModel:    () => Model<unknown>,
-  parsedSchema:    ParsedSchema,
-  routeConfig:     UpdateRouteConfig,
-  resourceConfig:  ResourceConfig,
-  logger:          Logger
+export function makePatchHandler(
+  resolveModel:   () => Model<unknown>,
+  parsedSchema:   ParsedSchema,
+  routeConfig:    PatchRouteConfig,
+  resourceConfig: ResourceConfig,
+  logger:         Logger
 ) {
   return async (expressRequest: Request, expressResponse: Response) => {
     try {
@@ -50,9 +49,6 @@ export function makeUpdateHandler(
 
       let incomingData = expressRequest.body as Record<string, unknown>
       if (routeConfig.beforeUpdate) {
-        // beforeUpdate runs before validation so hook-injected fields are present
-        // when required-field checks run. The hook must return the (modified) data —
-        // if it returns undefined the original body is used and a warning is logged.
         const hookResult = await routeConfig.beforeUpdate(incomingData, requestContext)
         if (hookResult !== undefined) {
           incomingData = hookResult
@@ -62,16 +58,20 @@ export function makeUpdateHandler(
       }
 
       if (routeConfig.validation) {
-        const validationErrors = validate(
-          incomingData,
-          parsedSchema
-        )
+        // Partial validation — only validate fields that are actually present in the body.
+        // Required-field checks are skipped for fields not included in a PATCH request.
+        const partialSchema = {
+          ...parsedSchema,
+          fields: parsedSchema.fields
+            .filter(f => incomingData[f.name] !== undefined)
+            .map(f => ({ ...f, required: false })),
+        }
+        const validationErrors = validate(incomingData, partialSchema)
         if (validationErrors.length) {
           return sendErrorResponse(expressResponse, 422, 'Validation failed', validationErrors)
         }
 
-        // Verify that all ObjectId ref fields point to existing documents
-        const mongooseModel = resolveModel()
+        // Verify ObjectId ref fields point to existing documents
         for (const field of parsedSchema.fields) {
           if (field.type === 'objectid' && field.ref && incomingData[field.name]) {
             const refModel = mongooseModel.db.models[field.ref]
@@ -90,7 +90,7 @@ export function makeUpdateHandler(
       const updatedDocument = await mongooseModel
         .findOneAndUpdate(
           { _id: documentId, ...(resourceConfig.scope ? resourceConfig.scope(expressRequest as unknown as Record<string, unknown>) : {}) },
-          incomingData,
+          { $set: incomingData },
           { new: true, runValidators: true }
         )
         .lean()
@@ -115,8 +115,8 @@ export function makeUpdateHandler(
 
       sendSuccessResponse(expressResponse, responseData, {}, resourceConfig.response)
     } catch (unexpectedError) {
-      logger.logError('update error:', unexpectedError)
-      const status = isDisconnectedError(unexpectedError) ? 503 : 500
+      logger.logError('patch error:', unexpectedError)
+      const status  = isDisconnectedError(unexpectedError) ? 503 : 500
       const message = status === 503 ? 'Service unavailable — database connection lost' : 'Internal server error'
       sendErrorResponse(expressResponse, status, message)
     }

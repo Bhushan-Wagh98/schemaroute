@@ -16,6 +16,7 @@ import { validate } from '@schemaroute/core'
 import type { ParsedSchema, ResourceConfig, CreateRouteConfig } from '@schemaroute/core'
 import { buildRequestContext } from '../http/context'
 import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
+import { applyTransformWithValidation, applyExposeFilter } from '../db/document'
 import type { Logger } from '../logger'
 
 /**
@@ -38,6 +39,13 @@ export function makeCreateHandler(
       const mongooseModel  = resolveModel()
       const requestContext = buildRequestContext(expressRequest)
       let   incomingData   = expressRequest.body as Record<string, unknown>
+
+      // Merge scope fields into the body so every created document is
+      // automatically tagged with the current tenant/user context.
+      if (resourceConfig.scope) {
+        const scopeFields = resourceConfig.scope(expressRequest as unknown as Record<string, unknown>)
+        incomingData = { ...incomingData, ...scopeFields }
+      }
 
       // beforeCreate runs before validation so hooks can inject computed fields
       // (e.g. auto-generating a slug from name) before required-field checks run.
@@ -89,9 +97,13 @@ export function makeCreateHandler(
       }
 
       const documentTransformFn = routeConfig.transform ?? resourceConfig.transform
-      const responseData        = documentTransformFn
-        ? documentTransformFn(plainDocument)
+      const debugWarn            = resourceConfig.debug ? (msg: string) => logger.logError(msg, null) : undefined
+      const transformedDocument = documentTransformFn
+        ? applyTransformWithValidation(plainDocument, documentTransformFn, debugWarn)
         : plainDocument
+      const responseData = resourceConfig.expose
+        ? applyExposeFilter(transformedDocument, resourceConfig.expose)
+        : transformedDocument
 
       sendSuccessResponse(expressResponse, responseData, {}, resourceConfig.response, 201)
     } catch (unexpectedError) {

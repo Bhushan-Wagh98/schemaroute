@@ -1,14 +1,24 @@
 /**
  * @file handlers/delete.ts
  * @description Factory for the `DELETE /:resource/:id` document deletion handler.
- * Fetches the document before deletion so lifecycle hooks receive the full
- * document. Returns `{ id }` on success.
+ * Supports both hard delete (default) and soft delete (`softDelete` config option).
+ *
+ * Hard delete: removes the document from the database permanently.
+ * Soft delete: sets `deletedAt` + `isDeleted` (or custom field names) on the
+ *   document instead of removing it. The document remains in the database and
+ *   can be restored via PATCH.
+ *
+ * Hook execution order (both modes):
+ *   1. `beforeDelete` — receives the full document before deletion/soft-delete
+ *   2. DB operation   — hard delete or $set soft-delete fields
+ *   3. `afterDelete`  — receives the document for side-effects
  */
 
 import type { Request, Response } from 'express'
 import type { Model } from 'mongoose'
 import type { ResourceConfig, DeleteRouteConfig, ParsedSchema } from '@schemaroute/core'
-import { isValidMongoObjectId } from '../db/document'
+import { isValidObjectId } from '@schemaroute/core'
+import { resolveSoftDeleteFields, buildSoftDeleteUpdate, buildSoftDeleteFilter } from '../db/soft-delete'
 import { buildRequestContext } from '../http/context'
 import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
 import type { Logger } from '../logger'
@@ -33,23 +43,35 @@ export function makeDeleteHandler(
   resourceConfig:  ResourceConfig,
   logger:          Logger
 ) {
+  const softDeleteFields = resolveSoftDeleteFields(resourceConfig.softDelete)
+
   return async (expressRequest: Request, expressResponse: Response) => {
     try {
       const { id: documentId } = expressRequest.params
 
-      if (!isValidMongoObjectId(documentId)) {
+      if (!isValidObjectId(documentId)) {
         return sendErrorResponse(expressResponse, 400, 'Invalid id format')
       }
 
       const mongooseModel = resolveModel()
 
-      // Fetch before deletion so hooks receive the full document
-      const documentToDelete = await mongooseModel.findById(documentId).lean().exec() as LeanDocument | null
+      // Build the find filter — merge scope so a tenant cannot delete another
+      // tenant's document (returns 404 instead of leaking existence), and when
+      // soft delete is enabled exclude already-deleted docs so a second DELETE
+      // also returns 404 rather than a silent no-op.
+      const scopeFilter = resourceConfig.scope
+        ? resourceConfig.scope(expressRequest as unknown as Record<string, unknown>)
+        : {}
+      const findFilter: Record<string, unknown> = { _id: documentId, ...scopeFilter }
+      if (softDeleteFields) {
+        Object.assign(findFilter, buildSoftDeleteFilter(softDeleteFields))
+      }
+
+      const documentToDelete = await mongooseModel.findOne(findFilter).lean().exec() as LeanDocument | null
       if (!documentToDelete) {
         return sendErrorResponse(expressResponse, 404, 'Resource not found')
       }
 
-      // Normalise _id to string before passing to hooks
       const serialisedDocument: Record<string, unknown> = {
         ...documentToDelete,
         _id: String(documentToDelete._id),
@@ -61,7 +83,13 @@ export function makeDeleteHandler(
         await routeConfig.beforeDelete(serialisedDocument, requestContext)
       }
 
-      await mongooseModel.findByIdAndDelete(documentId)
+      if (softDeleteFields) {
+        // Soft delete — update the document in place
+        await mongooseModel.findByIdAndUpdate(documentId, { $set: buildSoftDeleteUpdate(softDeleteFields) })
+      } else {
+        // Hard delete — remove permanently
+        await mongooseModel.findByIdAndDelete(documentId)
+      }
 
       if (routeConfig.afterDelete) {
         await routeConfig.afterDelete(serialisedDocument, requestContext)
@@ -70,7 +98,7 @@ export function makeDeleteHandler(
       sendSuccessResponse(expressResponse, { id: documentId }, {}, resourceConfig.response)
     } catch (unexpectedError) {
       logger.logError('delete error:', unexpectedError)
-      const status = isDisconnectedError(unexpectedError) ? 503 : 500
+      const status  = isDisconnectedError(unexpectedError) ? 503 : 500
       const message = status === 503 ? 'Service unavailable — database connection lost' : 'Internal server error'
       sendErrorResponse(expressResponse, status, message)
     }

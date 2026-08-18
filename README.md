@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/schemaroute)](https://www.npmjs.com/package/schemaroute)
 [![license](https://img.shields.io/npm/l/schemaroute)](./LICENSE)
-[![tests](https://img.shields.io/badge/tests-116%20passing-brightgreen)](#testing)
+[![tests](https://img.shields.io/badge/tests-306%20passing-brightgreen)](#testing)
 [![coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)](#testing)
 
 Auto-generate a fully working CRUD API from a Mongoose schema. No boilerplate. No repetition. Just define your schema and get routes, validation, filtering, pagination, search, population, hooks, docs, and a TypeScript SDK — all in one call.
@@ -14,6 +14,7 @@ createAPI(app, UserSchema, 'users')
 // GET    /users/:id
 // POST   /users
 // PUT    /users/:id
+// PATCH  /users/:id
 // DELETE /users/:id
 ```
 
@@ -93,8 +94,15 @@ That's it. You now have a fully working REST API with:
 - ✅ Filtering, sorting, field selection
 - ✅ Page and cursor pagination
 - ✅ Full-text search
-- ✅ Population of refs
+- ✅ Population of refs with optional field selection
+- ✅ Partial updates via PATCH
+- ✅ Soft delete with automatic read exclusion
+- ✅ Multitenancy via scope
 - ✅ Standard error responses
+- ✅ Expose field whitelist — DB-only fields never leak
+- ✅ API versioning via prefix
+- ✅ Body size limiting per resource
+- ✅ Full request context in hooks (`ctx.req`, `ctx.user`, `ctx.headers`)
 
 ---
 
@@ -108,12 +116,12 @@ Every `GET /resource` endpoint supports:
 |---|---|---|
 | Field filter | `?status=active&category=abc` | Filter by any schema field. Returns `400` if value is not a valid enum member |
 | Sort | `?sort=price&order=desc` | Sort by any field. Returns `400` for unknown field names |
-| Fields | `?fields=name,price,stock` | Select specific fields. Returns `400` for unknown field names. Ref fields not listed are not populated |
+| Fields | `?fields=name,price,stock` | Select specific fields on `getAll` and `getOne`. Returns `400` for unknown field names. Ref fields not listed are not populated |
 | Search | `?search=laptop` | Search across all string fields. Empty/whitespace values are ignored |
 | Search field | `?search=laptop&searchField=name` | Search in a specific field |
 | Page pagination | `?page=2&limit=10` | Offset-based. Returns `400` if `page < 1` or `limit` is non-numeric/non-positive |
 | Cursor pagination | `?cursor=<id>&limit=10` | Cursor-based pagination |
-| Populate | `?populate=category` | Populate Mongoose refs |
+| Populate | `?populate=category` | Populate Mongoose refs on `getAll` and `getOne` |
 
 ### Response envelope
 
@@ -151,12 +159,17 @@ Every `GET /resource` endpoint supports:
 createAPI(app, ProductSchema, 'products', {
 
   // resource-level defaults
-  pagination: 'page',
-  search:     'all-fields',
-  populate:   ['category'],
-  exclude:    ['__v'],
-  transform:  (doc) => ({ id: doc._id, ...doc }),  // reshape every response doc
-  debug:      false,  // set true to enable diagnostic logging
+  pagination:  'page',
+  search:      'all-fields',
+  populate:    [{ path: 'category', select: 'name slug' }],  // restrict populated fields
+  exclude:     ['__v'],
+  expose:      ['name', 'price', 'status', 'category'],      // whitelist — only these fields ever leave the API
+  prefix:      '/v1',                                        // all routes registered under /v1/products
+  maxBodySize: '100kb',                                      // reject POST/PUT/PATCH bodies over this size
+  softDelete:  true,                                         // soft delete instead of hard delete
+  scope:       (req) => ({ tenantId: req.headers['x-tenant-id'] }),  // multitenancy
+  transform:   (doc) => ({ id: doc._id, ...doc }),  // reshape every response doc
+  debug:       false,  // set true to enable diagnostic logging
 
   routes: {
     getAll: {
@@ -167,7 +180,7 @@ createAPI(app, ProductSchema, 'products', {
     },
     getOne: {
       public:   true,
-      populate: ['category'],
+      populate: [{ path: 'category', select: 'name slug' }],
     },
     create: {
       validation: true,
@@ -175,6 +188,8 @@ createAPI(app, ProductSchema, 'products', {
       beforeCreate: async (data, ctx) => {
         data.slug      = data.name.toLowerCase().replace(/\s+/g, '-')
         data.createdBy = ctx.user?.id
+        // ctx.req is the raw framework request — access ip, socket, custom props
+        console.log('created from ip:', ctx.req.ip)
         return data
       },
       afterCreate: async (doc) => {
@@ -182,7 +197,12 @@ createAPI(app, ProductSchema, 'products', {
       },
     },
     update: {
-      validation: true,
+      validation: true,  // PUT — all required fields must be present
+      middleware: [requireAuth],
+    },
+    patch: {
+      // PATCH — only sent fields are written, absent fields stay unchanged
+      // validation: true only validates fields present in the body
       middleware: [requireAuth],
     },
     delete: {
@@ -200,6 +220,16 @@ createAPI(app, ProductSchema, 'products', {
       handler: async (req, res) => {
         const items = await Product.find({ featured: true })
         res.json({ success: true, data: items })
+      },
+    },
+    {
+      // HEAD — returns headers only, no body
+      // useful for existence checks without transferring data
+      method:  'HEAD',
+      path:    '/products/:id/exists',
+      handler: async (req, res) => {
+        const exists = await Product.exists({ _id: req.params.id })
+        res.status(exists ? 200 : 404).end()
       },
     },
   ],
@@ -251,7 +281,8 @@ const api = createSDK('http://localhost:3000', [productsInstance, categoriesInst
 const { data, meta } = await api.products.getAll({ page: 1, limit: 10, sort: 'price' })
 const product        = await api.products.getOne('abc123')
 const created        = await api.products.create({ name: 'Laptop', price: 999, stock: 5 })
-const updated        = await api.products.update('abc123', { price: 899 })
+const updated        = await api.products.update('abc123', { price: 899 })   // PUT — full replace
+const patched        = await api.products.patch('abc123', { price: 799 })    // PATCH — partial update
 await api.products.delete('abc123')
 ```
 
@@ -282,13 +313,18 @@ await api.products.delete('abc123')
 | Pagination (page + cursor) | ❌ | ✅ | ✅ |
 | Full-text search | ❌ | ❌ | ✅ |
 | Population | ❌ | ❌ | ✅ |
-| Lifecycle hooks | ❌ | ❌ | ✅ |
+| Populate field selection | ❌ | ❌ | ✅ |
+| Partial updates (PATCH) | ❌ | ❌ | ✅ |
+| Lifecycle hooks + full ctx | ❌ | ❌ | ✅ |
 | Custom routes | ❌ | ✅ | ✅ |
 | Response shape | ❌ | ❌ | ✅ |
 | Rate limiting | ❌ | ❌ | ✅ |
 | 3-layer config override | ❌ | ❌ | ✅ |
 | OpenAPI docs | ❌ | ❌ | ✅ |
 | TypeScript SDK | ❌ | ❌ | ✅ |
+| Expose field whitelist | ❌ | ❌ | ✅ |
+| API versioning (prefix) | ❌ | ❌ | ✅ |
+| Body size limiting | ❌ | ❌ | ✅ |
 | Zero boilerplate | ⚠️ | ❌ | ✅ |
 | Debug logging | ❌ | ❌ | ✅ |
 
@@ -319,7 +355,7 @@ schemaroute-lib/
 | Turborepo | Monorepo build orchestration |
 | tsup | ESM + CJS dual build |
 | TypeScript strict | Type safety |
-| Vitest | Unit tests (116 tests, 99% coverage) |
+| Vitest | Unit tests (306 tests, 99% coverage) |
 | pnpm | Package manager |
 
 ---

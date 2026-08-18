@@ -13,6 +13,7 @@ import type {
   GetOneParams,
   CreateParams,
   UpdateParams,
+  PatchParams,
   DeleteParams,
   ListResponse,
   SingleResponse,
@@ -173,7 +174,7 @@ export function createResourceClient<T extends Record<string, unknown>>(
     },
 
     /**
-     * `PUT /:resource/:id` — update an existing document by ObjectId.
+     * `PUT /:resource/:id` — full document replacement.
      */
     async update(id: string, body: Partial<T>, params: UpdateParams = {}): Promise<SingleResponse<T>> {
       const url     = `${resourceUrl}/${id}`
@@ -182,6 +183,21 @@ export function createResourceClient<T extends Record<string, unknown>>(
       const responseBody = await executeRequest<{ data: T }>(
         url,
         { method: 'PUT', headers, body: JSON.stringify(body) }
+      )
+
+      return { data: responseBody.data }
+    },
+
+    /**
+     * `PATCH /:resource/:id` — partial document update (only sent fields written).
+     */
+    async patch(id: string, body: Partial<T>, params: PatchParams = {}): Promise<SingleResponse<T>> {
+      const url     = `${resourceUrl}/${id}`
+      const headers = mergeHeaders(jsonHeaders, params.headers)
+
+      const responseBody = await executeRequest<{ data: T }>(
+        url,
+        { method: 'PATCH', headers, body: JSON.stringify(body) }
       )
 
       return { data: responseBody.data }

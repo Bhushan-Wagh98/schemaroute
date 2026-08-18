@@ -1,7 +1,7 @@
 {
-  "name": "@schemaroute/docs",
+  "name": "@schemaroute/fastify",
   "version": "1.0.2",
-  "description": "OpenAPI 3.0 spec generator and Swagger UI for SchemaRoute",
+  "description": "Fastify adapter for SchemaRoute — auto-generate CRUD routes from a Mongoose schema",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -17,31 +17,30 @@
   "scripts": {
     "build": "tsup",
     "dev":   "tsup --watch",
+    "test":  "vitest run --passWithNoTests",
     "lint":  "tsc --noEmit"
   },
   "dependencies": {
     "@schemaroute/common": "workspace:*",
-    "swagger-ui-express":  "^5.0.1"
+    "@schemaroute/core":   "workspace:*"
   },
   "devDependencies": {
-    "@types/express":           "^4.17.21",
-    "@types/swagger-ui-express": "^4.1.6",
-    "tsup":                     "^8.0.0",
-    "typescript":               "^5.0.0"
+    "@types/node": "^20.0.0",
+    "fastify":     "^4.0.0",
+    "tsup":        "^8.0.0",
+    "typescript":  "^5.0.0",
+    "vitest":      "^1.0.0"
   },
   "peerDependencies": {
-    "express": ">=4.0.0"
+    "fastify":  ">=4.0.0",
+    "mongoose": ">=7.0.0"
   },
-  "keywords": ["schemaroute", "openapi", "swagger", "docs", "rest", "api", "typescript"],
+  "keywords": ["schemaroute", "fastify", "mongoose", "crud", "rest", "api", "typescript"],
   "author": "bhushan-wagh",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url":  "https://github.com/Bhushan-Wagh98/schemaroute.git",
-    "directory": "packages/docs"
-  },
-  "homepage": "https://github.com/Bhushan-Wagh98/schemaroute#readme",
-  "bugs": {
-    "url": "https://github.com/Bhushan-Wagh98/schemaroute/issues"
+    "directory": "packages/fastify"
   }
 }

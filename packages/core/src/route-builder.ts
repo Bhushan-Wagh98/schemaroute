@@ -6,7 +6,12 @@
  *
  * Route registration order:
  *   1. Custom routes  — registered first to prevent `/:id` catching named paths
- *   2. CRUD routes    — getAll, getOne, create, update, delete
+ *   2. CRUD routes    — getAll, getOne, create, update, patch, delete
+ *
+ * Prefix:
+ *   When `config.prefix` is set (e.g. `'/v1'`), it is prepended to every
+ *   auto-generated CRUD path. Custom routes define their own full path and
+ *   are not affected by prefix.
  */
 
 import type {
@@ -17,6 +22,7 @@ import type {
   GetOneRouteConfig,
   CreateRouteConfig,
   UpdateRouteConfig,
+  PatchRouteConfig,
   DeleteRouteConfig,
 } from './types'
 
@@ -26,6 +32,7 @@ const ROUTE_DEFAULTS = {
   getOne: { enabled: true, public: false },
   create: { enabled: true, public: false },
   update: { enabled: true, public: false },
+  patch:  { enabled: true, public: false },
   delete: { enabled: true, public: false },
 } as const
 
@@ -57,7 +64,9 @@ function resolveMiddleware(routeConfig: { middleware?: MiddlewareFn[] }): Middle
  */
 export function buildRoutes(resourceName: string, config: ResourceConfig): RouteDefinition[] {
   const routeOverrides = config.routes ?? {}
-  const basePath       = `/${resourceName}`
+  // Strip trailing slash so prefix '/v1/' and '/v1' both produce '/v1/products'
+  const prefix         = config.prefix ? config.prefix.replace(/\/+$/, '') : ''
+  const basePath       = `${prefix}/${resourceName}`
   const definitions: RouteDefinition[] = []
 
   // ── GET /:resource ────────────────────────────────────────────────────────
@@ -109,6 +118,19 @@ export function buildRoutes(resourceName: string, config: ResourceConfig): Route
       middleware: resolveMiddleware(updateConfig),
       rateLimit:  updateConfig.rateLimit,
       config:     updateConfig,
+    })
+  }
+
+  // ── PATCH /:resource/:id ──────────────────────────────────────────────────
+  const patchConfig: PatchRouteConfig = { ...ROUTE_DEFAULTS.patch, ...routeOverrides.patch }
+  if (patchConfig.enabled) {
+    definitions.push({
+      method:     'PATCH',
+      path:       `${basePath}/:id`,
+      operation:  'patch',
+      middleware: resolveMiddleware(patchConfig),
+      rateLimit:  patchConfig.rateLimit,
+      config:     patchConfig,
     })
   }
 

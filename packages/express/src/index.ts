@@ -8,17 +8,25 @@
  * Route registration order (critical for Express path matching):
  *   1. Custom routes — registered first to prevent `/:id` catching named paths
  *      (e.g. `/products/active` must not match `/products/:id`)
- *   2. CRUD routes   — getAll, getOne, create, update, delete
+ *   2. CRUD routes   — getAll, getOne, create, update, patch, delete
  *
  * Model registration:
  *   Models are registered on both the global Mongoose instance and the active
  *   connection so that `populate` works correctly with Atlas connections.
  *   Always call `createAPI` inside the `.then()` callback of `mongoose.connect`.
+ *
+ * Body size limiting (`maxBodySize`):
+ *   When set, a `Content-Length` header guard is injected before POST/PUT/PATCH
+ *   handlers. It has two paths:
+ *     1. Fast path — rejects via Content-Length header before the body is read.
+ *     2. Slow path — fallback for chunked transfers that omit Content-Length;
+ *        checks the byte length of the already-parsed body.
+ *   GET and DELETE routes are never affected.
  */
 
 import type { Application, RequestHandler } from 'express'
-import type { Schema, Model, Mongoose } from 'mongoose'
-import { createSchemaRoute } from '@schemaroute/core'
+import type { Schema, Mongoose } from 'mongoose'
+import { createSchemaRoute, deriveModelName, assertConnected, registerModel, makeResolveModel } from '@schemaroute/core'
 import type {
   ResourceConfig,
   SchemaRouteInstance,
@@ -28,6 +36,7 @@ import type {
   GetOneRouteConfig,
   CreateRouteConfig,
   UpdateRouteConfig,
+  PatchRouteConfig,
   DeleteRouteConfig,
 } from '@schemaroute/core'
 import { createRateLimiter } from './rate-limiter'
@@ -37,10 +46,63 @@ import {
   makeGetOneHandler,
   makeCreateHandler,
   makeUpdateHandler,
+  makePatchHandler,
   makeDeleteHandler,
 } from './handlers/index'
 
 // ─── Internal Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Returns a middleware that rejects requests whose body exceeds `maxBodySize`.
+ *
+ * Two-path strategy:
+ *   1. Fast path — checks `Content-Length` header before the body is read.
+ *      Rejects immediately with 413 if the declared size exceeds the limit.
+ *   2. Slow path — fallback for chunked transfers that omit `Content-Length`.
+ *      When `req.body` is already set by the app-level `express.json()` parser,
+ *      the serialised byte length of the parsed body is used as a proxy.
+ *
+ * This approach works even when an app-level `express.json()` has already run,
+ * because Express body parsers skip re-parsing if `req.body` is already set —
+ * so injecting a second size-limited parser would have no effect.
+ */
+function makeBodySizeGuard(maxBodySize: string | number): RequestHandler {
+  const maxBytes = typeof maxBodySize === 'number'
+    ? maxBodySize
+    : parseSize(maxBodySize)
+
+  return (req, res, next) => {
+    // Fast path: Content-Length header present — reject before reading body
+    const contentLength = parseInt(req.headers['content-length'] ?? '0', 10)
+    if (contentLength > maxBytes) {
+      res.status(413).json({ success: false, error: `Request body too large — limit is ${maxBodySize}` })
+      return
+    }
+
+    // Slow path: chunked transfer without Content-Length — count bytes as they arrive
+    // req.body is already set by app-level express.json(), so we check the raw
+    // JSON string length as a proxy for the original byte count
+    if (req.body !== undefined) {
+      const bodyBytes = Buffer.byteLength(JSON.stringify(req.body), 'utf8')
+      if (bodyBytes > maxBytes) {
+        res.status(413).json({ success: false, error: `Request body too large — limit is ${maxBodySize}` })
+        return
+      }
+    }
+
+    next()
+  }
+}
+
+/** Parses size strings like '10kb', '1mb' into bytes. */
+function parseSize(size: string): number {
+  const match = size.match(/^(\d+(?:\.\d+)?)\s*(b|kb|mb|gb)?$/i)
+  if (!match) return 102400 // default 100kb
+  const value = parseFloat(match[1]!)
+  const unit  = (match[2] ?? 'b').toLowerCase()
+  const multipliers: Record<string, number> = { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3 }
+  return Math.floor(value * (multipliers[unit] ?? 1))
+}
 
 /** Type guard — returns `true` when the rate limit option is the built-in config object. */
 function isBuiltInRateLimitConfig(rateLimitOption: RateLimitOption): rateLimitOption is BuiltInRateLimit {
@@ -57,22 +119,6 @@ function resolveRateLimitMiddleware(rateLimitOption?: RateLimitOption): RequestH
     return [createRateLimiter(rateLimitOption) as RequestHandler]
   }
   return rateLimitOption as RequestHandler[]
-}
-
-/**
- * Derives the singular PascalCase Mongoose model name from a plural resource name.
- * Matches Mongoose's `ref` convention so cross-model `populate` works correctly.
- *
- * @example
- * deriveModelName('categories') // → 'Category'
- * deriveModelName('products')   // → 'Product'
- * deriveModelName('users')      // → 'User'
- */
-function deriveModelName(pluralResourceName: string): string {
-  const singularName = pluralResourceName
-    .replace(/ies$/i, 'y')  // categories → category
-    .replace(/s$/i,   '')   // products   → product
-  return singularName.charAt(0).toUpperCase() + singularName.slice(1)
 }
 
 /** Tracks which Express app instances have already had the JSON error handler registered. */
@@ -144,6 +190,7 @@ export function registerErrorHandlers(expressApp: Application): void {
  *   createAPI(app, ProductSchema, 'products', {
  *     routes: {
  *       create: { validation: true, middleware: [requireAuth] },
+ *       patch:  { middleware: [requireAuth] },          // partial update
  *       delete: { middleware: [requireAuth, requireAdmin] },
  *     },
  *   }, mongoose)  // ← always pass your mongoose instance
@@ -167,52 +214,21 @@ export function createAPI(
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mongooseRef = mongooseInstance ?? (require('mongoose') as Mongoose)
 
-  // Guard: warn clearly if called before mongoose.connect() resolves.
-  // readyState 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
-  const readyState = mongooseRef.connection?.readyState
-  if (readyState !== 1) {
-    const stateLabel = ['disconnected', 'connected', 'connecting', 'disconnecting'][readyState ?? 0]
-    throw new Error(
-      `[schemaroute] createAPI('${resourceName}') was called while mongoose connection is "${stateLabel}".\n` +
-      `You must call createAPI inside the .then() callback of mongoose.connect(), ` +
-      `after the connection is fully open.\n\n` +
-      `Example:\n` +
-      `  mongoose.connect(process.env.MONGO_URI).then(() => {\n` +
-      `    createAPI(app, ${resourceName[0]!.toUpperCase() + resourceName.slice(1)}Schema, '${resourceName}', config, mongoose)\n` +
-      `  })`
-    )
-  }
+  assertConnected(resourceName, mongooseRef)
 
   const schemaRouteInstance      = createSchemaRoute(mongooseSchema, resourceName, resourceConfig)
   const { parsedSchema, routes } = schemaRouteInstance
   const modelName                = deriveModelName(resourceName)
 
-  // Register on both the global registry and the active connection so that
-  // cross-model populate works correctly with Atlas connections
-  if (!mongooseRef.models[modelName]) {
-    mongooseRef.model(modelName, mongooseSchema)
-  }
-  if (mongooseRef.connection && !mongooseRef.connection.models[modelName]) {
-    try {
-      mongooseRef.connection.model(modelName, mongooseSchema)
-    } catch {
-      // Model already registered on this connection — safe to ignore
-    }
-  }
+  registerModel(mongooseRef, modelName, mongooseSchema)
 
   logger.log(`registered model: ${modelName} — active models: [${Object.keys(mongooseRef.connection?.models ?? {}).join(', ')}]`)
 
-  // Lazily resolve the model at request time so it always uses the active connection.
-  // Throws a typed error when the connection is not open so handlers can return
-  // a 503 instead of letting Mongoose hang or surface a cryptic internal error.
-  const resolveModel = (): Model<unknown> => {
-    if (mongooseRef.connection?.readyState !== 1) {
-      const err = new Error(`[schemaroute] MongoDB connection lost — readyState: ${mongooseRef.connection?.readyState ?? 0}`)
-      ;(err as Error & { code: string }).code = 'MONGOOSE_DISCONNECTED'
-      throw err
-    }
-    return mongooseRef.connection.models[modelName] ?? mongooseRef.models[modelName]!
-  }
+  const resolveModel = makeResolveModel(mongooseRef, modelName)
+
+  // Body size guard for write routes — rejects via Content-Length header check
+  // before the body is read, so it works even when app-level express.json() runs first.
+  const bodySizeGuard = resourceConfig.maxBodySize ? makeBodySizeGuard(resourceConfig.maxBodySize) : null
 
   // Return JSON instead of Express's default HTML for malformed request bodies.
   // Delegates to registerErrorHandlers which guards against duplicate registration.
@@ -259,13 +275,22 @@ export function createAPI(
 
       case 'create':
         expressApp.post(routeDefinition.path, ...routeMiddlewareChain,
+          ...(bodySizeGuard ? [bodySizeGuard] : []),
           makeCreateHandler(resolveModel, parsedSchema, routeDefinition.config as CreateRouteConfig, resourceConfig, logger) as RequestHandler
         )
         break
 
       case 'update':
         expressApp.put(routeDefinition.path, ...routeMiddlewareChain,
+          ...(bodySizeGuard ? [bodySizeGuard] : []),
           makeUpdateHandler(resolveModel, parsedSchema, routeDefinition.config as UpdateRouteConfig, resourceConfig, logger) as RequestHandler
+        )
+        break
+
+      case 'patch':
+        expressApp.patch(routeDefinition.path, ...routeMiddlewareChain,
+          ...(bodySizeGuard ? [bodySizeGuard] : []),
+          makePatchHandler(resolveModel, parsedSchema, routeDefinition.config as PatchRouteConfig, resourceConfig, logger) as RequestHandler
         )
         break
 

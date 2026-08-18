@@ -40,6 +40,9 @@ describe('@schemaroute/common exports', () => {
       populate:   ['category'],
       exclude:    ['__v'],
       select:     ['name', 'price'],
+      expose:     ['name', 'price', 'status'],
+      prefix:     '/v1',
+      maxBodySize: '100kb',
       routes: {
         getAll:  { enabled: true, sort: true, fields: true },
         getOne:  { enabled: true },
@@ -51,6 +54,9 @@ describe('@schemaroute/common exports', () => {
     expect(config.pagination).toBe('page')
     expect(config.search).toBe('all-fields')
     expect(config.populate).toEqual(['category'])
+    expect(config.expose).toEqual(['name', 'price', 'status'])
+    expect(config.prefix).toBe('/v1')
+    expect(config.maxBodySize).toBe('100kb')
   })
 
   it('ParsedField accepts all field types', () => {
@@ -106,9 +112,22 @@ describe('@schemaroute/common exports', () => {
       headers: { 'content-type': 'application/json' },
       query:   { page: '1' },
       params:  { id: 'abc123' },
+      req:     { method: 'POST', ip: '127.0.0.1' },
     }
     expect(ctx.headers).toBeDefined()
+    expect(ctx.req).toBeDefined()
     expect(ctx.user).toBeUndefined()
+  })
+
+  it('RequestContext req field accepts arbitrary request properties', () => {
+    const ctx: RequestContext = {
+      headers: {},
+      query:   {},
+      params:  {},
+      req:     { ip: '::1', method: 'GET', socket: {}, customProp: 'value' },
+    }
+    expect(ctx.req['ip']).toBe('::1')
+    expect(ctx.req['customProp']).toBe('value')
   })
 
   it('CustomRoute requires method, path, and handler', () => {
@@ -143,6 +162,39 @@ describe('@schemaroute/common exports', () => {
     }
     expect(config.validation).toBe(true)
     expect(typeof config.beforeCreate).toBe('function')
+  })
+
+  it('ResourceConfig accepts expose whitelist', () => {
+    const config: ResourceConfig = {
+      expose: ['name', 'price', 'status'],
+    }
+    expect(config.expose).toEqual(['name', 'price', 'status'])
+  })
+
+  it('ResourceConfig accepts prefix for API versioning', () => {
+    const config: ResourceConfig = { prefix: '/v1' }
+    expect(config.prefix).toBe('/v1')
+  })
+
+  it('ResourceConfig accepts maxBodySize as string', () => {
+    const config: ResourceConfig = { maxBodySize: '50kb' }
+    expect(config.maxBodySize).toBe('50kb')
+  })
+
+  it('ResourceConfig accepts maxBodySize as number (bytes)', () => {
+    const config: ResourceConfig = { maxBodySize: 51200 }
+    expect(config.maxBodySize).toBe(51200)
+  })
+
+  it('ResourceConfig accepts all new high-impact options together', () => {
+    const config: ResourceConfig = {
+      prefix:      '/v1',
+      expose:      ['name', 'price'],
+      maxBodySize: '10kb',
+    }
+    expect(config.prefix).toBe('/v1')
+    expect(config.expose).toHaveLength(2)
+    expect(config.maxBodySize).toBe('10kb')
   })
 
   it('SchemaRouteInstance has all required fields', () => {

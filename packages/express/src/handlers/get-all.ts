@@ -7,9 +7,10 @@
 
 import type { Request, Response } from 'express'
 import type { Model } from 'mongoose'
-import { resolveQuery, buildMeta } from '@schemaroute/core'
+import { resolveQuery, buildMeta, toMongoosePopulate } from '@schemaroute/core'
 import type { ParsedSchema, ResourceConfig, GetAllRouteConfig } from '@schemaroute/core'
-import { stripExcludedFields, applyDocumentTransform } from '../db/document'
+import { stripExcludedFields, applyDocumentTransform, applyTransformWithValidation, applyExposeFilter } from '../db/document'
+import { resolveSoftDeleteFields, buildSoftDeleteFilter } from '../db/soft-delete'
 import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
 import type { Logger } from '../logger'
 
@@ -41,6 +42,13 @@ export function makeGetAllHandler(
     try {
       const mongooseModel = resolveModel()
 
+      // ── Scope filter ──────────────────────────────────────────────────────
+      // Merge scope function result into the base filter so every query is
+      // automatically restricted to the current request's tenant/user.
+      const scopeFilter = resourceConfig.scope
+        ? resourceConfig.scope(expressRequest as unknown as Record<string, unknown>)
+        : {}
+
       const resolvedQuery = resolveQuery(
         expressRequest.query as Record<string, string>,
         parsedSchema,
@@ -61,11 +69,16 @@ export function makeGetAllHandler(
         return
       }
 
+      // ── Soft delete filter ────────────────────────────────────────────────
+      // Automatically exclude soft-deleted documents from all list queries.
+      const softDeleteFields = resolveSoftDeleteFields(resourceConfig.softDelete)
+      const softDeleteFilter = softDeleteFields ? buildSoftDeleteFilter(softDeleteFields) : {}
+
       // Cursor pagination — build a separate find filter that includes the _id
       // greater-than constraint. countDocuments uses the base filter only so
       // `total` always reflects the full matching collection size, not just the
       // remaining documents after the cursor.
-      const findFilter = { ...resolvedQuery.filter }
+      const findFilter = { ...resolvedQuery.filter, ...scopeFilter, ...softDeleteFilter }
       if (resolvedQuery.pagination?.type === 'cursor' && resolvedQuery.pagination.cursor) {
         findFilter['_id'] = { $gt: resolvedQuery.pagination.cursor }
       }
@@ -86,11 +99,14 @@ export function makeGetAllHandler(
         ? String(expressRequest.query['fields']).split(',').map(f => f.trim())
         : null
       const fieldsToPopulate = requestedFields
-        ? resolvedQuery.populate.filter(f => requestedFields.includes(f))
+        ? resolvedQuery.populate.filter(opt => {
+            const path = typeof opt === 'string' ? opt : opt.path
+            return requestedFields.includes(path)
+          })
         : resolvedQuery.populate
 
-      for (const refFieldName of fieldsToPopulate) {
-        mongooseQuery = mongooseQuery.populate(refFieldName)
+      for (const populateOpt of fieldsToPopulate) {
+        mongooseQuery = mongooseQuery.populate(toMongoosePopulate(populateOpt) as any)
       }
 
       if (resolvedQuery.pagination?.type === 'page') {
@@ -106,7 +122,7 @@ export function makeGetAllHandler(
       // find uses findFilter (base filter + optional cursor _id constraint).
       // countDocuments uses the base filter only so meta.total always reflects
       // the full matching collection size regardless of cursor position.
-      const baseFilter = resolvedQuery.filter
+      const baseFilter = { ...resolvedQuery.filter, ...scopeFilter, ...softDeleteFilter }
       const [fetchedDocuments, totalDocumentCount] = await Promise.all([
         mongooseQuery.lean().exec(),
         mongooseModel.countDocuments(baseFilter),
@@ -130,13 +146,17 @@ export function makeGetAllHandler(
         ...(routeConfig.exclude ?? []),
       ]
       const documentTransformFn = routeConfig.transform ?? resourceConfig.transform
+      const debugWarn            = resourceConfig.debug ? (msg: string) => logger.logError(msg, null) : undefined
       const responseMeta        = buildMeta(resolvedQuery.pagination, totalDocumentCount, nextPageCursor)
       const sanitisedDocuments  = resultDocuments.map(doc => stripExcludedFields(doc, fieldsToExclude))
       const responseData        = documentTransformFn
-        ? applyDocumentTransform(sanitisedDocuments, documentTransformFn)
+        ? applyDocumentTransform(sanitisedDocuments, documentTransformFn, debugWarn)
         : sanitisedDocuments
+      const finalData = resourceConfig.expose
+        ? responseData.map(doc => applyExposeFilter(doc, resourceConfig.expose!))
+        : responseData
 
-      sendSuccessResponse(expressResponse, responseData, responseMeta, resourceConfig.response)
+      sendSuccessResponse(expressResponse, finalData, responseMeta, resourceConfig.response)
     } catch (unexpectedError) {
       logger.logError('getAll error:', unexpectedError)
       const status = isDisconnectedError(unexpectedError) ? 503 : 500

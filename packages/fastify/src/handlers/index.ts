@@ -1,7 +1,6 @@
 /**
  * @file handlers/index.ts
- * @description Re-exports all CRUD handler factories for consumption by the
- * Express adapter entry point (`index.ts`).
+ * @description Re-exports all CRUD handler factories for the Fastify adapter.
  */
 
 export { makeGetAllHandler } from './get-all'

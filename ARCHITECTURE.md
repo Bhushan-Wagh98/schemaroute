@@ -40,10 +40,33 @@ Mongoose Schema
 schemaroute-lib/
 ├── packages/
 │   ├── common/           ← shared TypeScript types (zero runtime deps)
-│   ├── core/             ← schema parser, route builder, validation logic (framework-agnostic)
-│   ├── express/          ← express adapter
+│   ├── core/             ← schema parser, route builder, validation, adapter utilities
+│   │   └── src/
+│   │       ├── adapter-utils.ts  ← deriveModelName, isValidObjectId, assertConnected, registerModel, makeResolveModel
+│   │       ├── soft-delete.ts    ← resolveSoftDeleteFields, buildSoftDeleteUpdate, buildSoftDeleteFilter
+│   │       ├── schema-parser.ts
+│   │       ├── route-builder.ts
+│   │       ├── validator.ts
+│   │       └── query/            ← filter, sort, projection, populate, search, pagination
+│   ├── express/          ← Express adapter
+│   │   └── src/
+│   │       ├── index.ts          ← createAPI entry point
+│   │       ├── handlers/         ← get-all, get-one, create, update, patch, delete
+│   │       ├── db/               ← document.ts (stripExcludedFields, transform), soft-delete.ts (re-export)
+│   │       ├── http/             ← context.ts, response.ts
+│   │       ├── logger.ts
+│   │       └── rate-limiter.ts
+│   ├── fastify/          ← Fastify adapter (mirrors express structure)
+│   │   └── src/
+│   │       ├── index.ts          ← createAPI entry point
+│   │       ├── handlers/         ← get-all, get-one, create, update, patch, delete
+│   │       ├── http/             ← response.ts
+│   │       └── soft-delete.ts    ← re-export from @schemaroute/core
 │   ├── docs/             ← OpenAPI 3.0 spec generator + Swagger UI
-│   └── sdk/              ← TypeScript client SDK
+│   ├── sdk/              ← TypeScript client SDK (typed generics, patch method)
+│   └── schemaroute/      ← umbrella package
+├── apps/
+│   └── test-api/         ← local test server (not published)
 ├── package.json          ← turborepo root
 ├── turbo.json
 ├── pnpm-workspace.yaml
@@ -58,6 +81,7 @@ schemaroute (umbrella)
   ├── @schemaroute/common   ← types only, no deps
   ├── @schemaroute/core     ← depends on common
   ├── @schemaroute/express  ← depends on core
+  ├── @schemaroute/fastify  ← depends on core
   ├── @schemaroute/docs     ← depends on common
   └── @schemaroute/sdk      ← depends on common
 ```
@@ -82,6 +106,10 @@ schemaroute (umbrella)
 ## Design Philosophy
 
 **Never force one option — always let user choose per resource, per route.**
+
+### Intentional Scope
+
+SchemaRoute is intentionally scoped to CRUD-heavy resources. It is not a framework and does not try to replace a service layer. For resources with complex domain logic, the correct pattern is to use SchemaRoute for the simple resources and write plain controllers or custom routes for the complex ones — SchemaRoute supports this via the `custom` option. Trying to push complex orchestration logic into hooks is a sign that the resource has outgrown SchemaRoute, not a sign that SchemaRoute needs more features.
 
 ### 3-Layer Override System
 
@@ -131,6 +159,7 @@ Generates:
 - `GET    /users/:id`
 - `POST   /users`
 - `PUT    /users/:id`
+- `PATCH  /users/:id`
 - `DELETE /users/:id`
 
 ---
@@ -141,10 +170,19 @@ Generates:
 createAPI(app, UserSchema, 'users', {
 
   // --- resource-level defaults (can be overridden per route) ---
-  pagination: 'page',
-  search: 'all-fields',
-  populate: ['role'],
-  response: (data, meta) => ({ success: true, data, ...meta }),
+  pagination:  'page',
+  search:      'all-fields',
+  populate:    ['role'],
+  expose:      ['name', 'email', 'role'],   // whitelist — only these fields ever leave the API
+  prefix:      '/v1',                       // all routes registered under /v1/users
+  maxBodySize: '100kb',                     // reject POST/PUT/PATCH bodies over this size
+  response:    (data, meta) => ({ success: true, data, ...meta }),
+
+  // scope — auto-applied to every query and create/update body
+  scope: (req) => ({ tenantId: req.headers['x-tenant-id'] }),
+
+  // softDelete — DELETE sets deletedAt/isDeleted instead of removing
+  softDelete: true,  // or: { field: 'archivedAt', flagField: 'archived' }
 
   routes: {
 
@@ -174,11 +212,13 @@ createAPI(app, UserSchema, 'users', {
       middleware: [authMiddleware, roleMiddleware('admin')],
       validation: true,
       rateLimit: { max: 20, window: '1m' },
-      beforeCreate: async (data) => {
+      beforeCreate: async (data, ctx) => {
         data.password = await hash(data.password)
+        // ctx.req is the raw request — access ip, user, custom middleware props
+        console.log('created from ip:', ctx.req.ip)
         return data                       // modified data goes to DB
       },
-      afterCreate: async (doc) => {
+      afterCreate: async (doc, ctx) => {
         await sendWelcomeEmail(doc.email)
       },
     },
@@ -188,18 +228,29 @@ createAPI(app, UserSchema, 'users', {
       public: false,
       middleware: [authMiddleware],
       validation: true,
-      beforeUpdate: async (data) => {
+      beforeUpdate: async (data, ctx) => {
         return data
       },
-      afterUpdate: async (doc) => {},
+      afterUpdate: async (doc, ctx) => {},
+    },
+
+    patch: {
+      enabled: true,
+      public: false,
+      middleware: [authMiddleware],
+      validation: true,          // only validates fields present in the body
+      beforeUpdate: async (data, ctx) => {
+        return data
+      },
+      afterUpdate: async (doc, ctx) => {},
     },
 
     delete: {
       enabled: true,
       public: false,
       middleware: [authMiddleware, roleMiddleware('superadmin')],
-      beforeDelete: async (doc) => {},
-      afterDelete: async (doc) => {},
+      beforeDelete: async (doc, ctx) => {},
+      afterDelete: async (doc, ctx) => {},
     },
 
   },
@@ -229,27 +280,54 @@ createAPI(app, UserSchema, 'users', {
 ## Feature Breakdown
 
 ### CRUD Routes
-| Route | Method | Path |
+| Route | Method | Path | Description |
+|---|---|---|---|
+| getAll | GET | `/resource` | List documents with filtering, search, sort, pagination |
+| getOne | GET | `/resource/:id` | Single document by ID with population |
+| create | POST | `/resource` | Insert a new document |
+| update | PUT | `/resource/:id` | Full document replacement |
+| patch | PATCH | `/resource/:id` | Partial update — only sent fields are written |
+| delete | DELETE | `/resource/:id` | Hard delete (or soft delete when `softDelete` is enabled) |
+
+---
+
+### HTTP Methods
+
+SchemaRoute uses the standard REST subset for auto-generated routes:
+
+| Method | Used by | Behaviour |
 |---|---|---|
-| getAll | GET | `/resource` |
-| getOne | GET | `/resource/:id` |
-| create | POST | `/resource` |
-| update | PUT | `/resource/:id` |
-| delete | DELETE | `/resource/:id` |
+| GET | getAll, getOne | Read-only, no body |
+| POST | create | Insert new document |
+| PUT | update | Full replacement — all required fields must be present |
+| PATCH | patch | Partial update via `$set` — only sent fields are written |
+| DELETE | delete | Hard delete |
+| HEAD | custom routes only | Like GET but response body is omitted — useful for existence checks and cache validation |
+
+Not supported and why:
+
+| Method | Reason |
+|---|---|
+| OPTIONS | Express handles CORS preflight automatically. No app-level ownership needed. |
+| CONNECT | TCP tunnel for SSL proxies. Not an application-layer concern. |
+| TRACE | Diagnostic loop-back. Disabled by default in most frameworks for security reasons. |
 
 ---
 
 ### Route Config Options
 
-| Option | Type | Description |
-|---|---|---|
-| `enabled` | `boolean` | Whether this route is active |
-| `public` | `boolean` | Skip all middleware/auth |
-| `middleware` | `array` | Any middleware, user provides their own |
-| `validation` | `boolean` | Auto-validate request body against schema |
-| `rateLimit` | `object \| array` | `{ max, window }` or bring your own middleware |
-| `transform` | `TransformFn` | Reshape each document before sending |
-| `debug` | `boolean` | Enable diagnostic logging (resource config only) |
+| Option | Type | Scope | Description |
+|---|---|---|---|
+| `enabled` | `boolean` | route | Whether this route is active |
+| `public` | `boolean` | route | Skip all middleware/auth |
+| `middleware` | `array` | route | Any middleware, user provides their own |
+| `validation` | `boolean` | route | Auto-validate request body against schema |
+| `rateLimit` | `object \| array` | route | `{ max, window }` or bring your own middleware |
+| `transform` | `TransformFn` | route/resource | Reshape each document before sending |
+| `expose` | `string[]` | resource | Whitelist — only these fields ever leave the API |
+| `prefix` | `string` | resource | URL prefix for all routes, e.g. `'/v1'` |
+| `maxBodySize` | `string \| number` | resource | Reject POST/PUT/PATCH bodies over this size |
+| `debug` | `boolean` | resource | Enable diagnostic logging |
 
 ---
 
@@ -259,7 +337,7 @@ createAPI(app, UserSchema, 'users', {
 |---|---|---|
 | Filter | `?name=john&age=25` | Filter by any schema field |
 | Sort | `?sort=createdAt&order=desc` | Sort by field |
-| Fields | `?fields=name,email` | Select specific fields |
+| Fields | `?fields=name,email` | Select specific fields — works on both `getAll` and `getOne` |
 | Search | `?search=john` | Search across string fields |
 | Search field | `?search=john&searchField=name` | Search in specific field |
 | Page pagination | `?page=1&limit=10` | Page based pagination |
@@ -292,30 +370,37 @@ createAPI(app, UserSchema, 'users', {
 ### Hooks
 
 Hooks run before or after DB operations. They can modify data.
+Every hook receives a second `ctx` argument with `ctx.user`, `ctx.req`, `ctx.headers`, `ctx.query`, and `ctx.params`.
 
 | Hook | Runs | Can modify data |
 |---|---|---|
-| `beforeCreate(data)` | before insert | ✅ return modified data |
-| `afterCreate(doc)` | after insert | ❌ side effects only |
-| `beforeUpdate(data)` | before update | ✅ return modified data |
-| `afterUpdate(doc)` | after update | ❌ side effects only |
-| `beforeDelete(doc)` | before delete | ❌ side effects only |
-| `afterDelete(doc)` | after delete | ❌ side effects only |
+| `beforeCreate(data, ctx)` | before insert | ✅ return modified data |
+| `afterCreate(doc, ctx)` | after insert | ❌ side effects only |
+| `beforeUpdate(data, ctx)` | before update | ✅ return modified data |
+| `afterUpdate(doc, ctx)` | after update | ❌ side effects only |
+| `beforeDelete(doc, ctx)` | before delete | ❌ side effects only |
+| `afterDelete(doc, ctx)` | after delete | ❌ side effects only |
 
 ---
 
 ### Population
 
 ```js
-// resource level
+// plain string — returns the full referenced document
 populate: ['author', 'category']
+
+// object form — restricts which fields are returned from the ref
+// prevents sensitive fields (e.g. password, tokens) from leaking
+populate: [{ path: 'author', select: 'name email' }]
 
 // route level override
 getOne: {
-  populate: ['author', 'category', 'comments']
+  populate: [{ path: 'author', select: 'name' }, 'category']
 }
 
-// via query param (if enabled)
+// via query param on getAll or getOne
+// note: config entries take precedence — a config select restriction
+// cannot be overridden by the client via ?populate=
 GET /posts?populate=author
 ```
 
@@ -363,14 +448,111 @@ rateLimit: [myExpressRateLimitMiddleware]
 ```js
 custom: [
   {
-    method: 'POST',           // GET | POST | PUT | PATCH | DELETE
+    method: 'POST',           // GET | POST | PUT | PATCH | DELETE | HEAD
     path: '/users/login',     // full path
     handler: loginHandler,    // your own handler
     middleware: [],           // optional
     validation: true,         // optional
-  }
+  },
+  {
+    // HEAD — returns headers only, no body
+    // useful for existence checks without transferring data
+    method: 'HEAD',
+    path: '/users/:id/exists',
+    handler: async (req, res) => {
+      const exists = await User.exists({ _id: req.params.id })
+      res.status(exists ? 200 : 404).end()
+    },
+  },
 ]
 ```
+
+---
+
+### Soft Delete
+
+When `softDelete: true` is set on a resource, `DELETE /:id` sets `deletedAt` and `isDeleted`
+on the document instead of removing it. All reads automatically exclude soft-deleted documents.
+
+The fields must exist on the Mongoose schema before enabling soft delete:
+
+```js
+const ProductSchema = new Schema({
+  name:      String,
+  deletedAt: { type: Date,    default: null },
+  isDeleted: { type: Boolean, default: false },
+})
+
+createAPI(app, ProductSchema, 'products', { softDelete: true }, mongoose)
+```
+
+Custom field names:
+
+```js
+softDelete: { field: 'archivedAt', flagField: 'archived' }
+```
+
+**Soft delete edge cases:**
+
+| Case | Behaviour |
+|---|---|
+| `DELETE` on a live document | Sets `deletedAt` + `isDeleted: true`. Returns `{ id }`. |
+| `DELETE` on an already-soft-deleted document | Returns `404` — not a no-op |
+| `GET /:id` on a soft-deleted document | Returns `404` |
+| `GET /` list | Soft-deleted documents excluded automatically |
+| Documents without `isDeleted` field (pre-existing) | Still returned — filter uses `$ne: true`, not `=== false` |
+| Restore via `PATCH` | Set `{ isDeleted: false, deletedAt: null }` — document reappears in reads |
+
+---
+
+### Scope (Multitenancy)
+
+The `scope` function is called on every request and its return value is merged into
+every query filter and every create/update body. Use it to restrict all operations
+to the current tenant or user without repeating the filter in every hook.
+
+```js
+createAPI(app, PostSchema, 'posts', {
+  scope: (req) => ({ userId: req.headers['x-user-id'] }),
+}, mongoose)
+```
+
+Scope is applied to:
+
+| Operation | Effect |
+|---|---|
+| `getAll` | Merged into MongoDB filter — only matching docs returned |
+| `getOne` | Merged into find filter — cross-scope reads return `404` |
+| `create` | Merged into document body — new docs auto-tagged |
+| `update` (PUT) | Merged into find filter — cross-scope writes return `404` |
+| `patch` (PATCH) | Merged into find filter — cross-scope writes return `404` |
+| `delete` | Merged into find filter — cross-scope deletes return `404` |
+
+When `scope` returns `{}` (e.g. no header present), no filter is applied — all documents are accessible.
+
+---
+
+### SDK Generics
+
+Pass a type map to `createSDK` to get fully typed responses across all methods:
+
+```ts
+interface Product  { _id: string; name: string; price: number; [key: string]: unknown }
+interface Category { _id: string; name: string; slug: string;  [key: string]: unknown }
+
+const api = createSDK<{ products: Product; categories: Category }>(
+  'http://localhost:3000',
+  [productsInstance, categoriesInstance]
+)
+
+const { data } = await api.products.getAll({ page: 1 })
+// data is Product[] — fully typed
+
+const patched = await api.products.patch('abc123', { price: 799 })
+// patched.data is Product
+```
+
+Without the generic, all methods return `Record<string, unknown>`.
 
 ---
 
@@ -379,7 +561,23 @@ custom: [
 - Auto-generated from Mongoose schema — no extra config needed
 - Validates `required`, `type`, `enum`, `min`, `max`, `minlength`, `maxlength`, `objectid` format
 - Validates that ObjectId ref fields point to existing documents
+- Recurses into embedded sub-documents — both explicit `new Schema({})` and inline object forms
+- Error field names use dot-notation for nested fields (e.g. `address.street`)
 - Returns structured error response on failure
+
+**Nested validation edge cases:**
+
+| Case | Behaviour |
+|---|---|
+| Required nested object missing entirely | `422` — `address is required` |
+| Required nested object is `null` | `422` — `address is required` |
+| Nested object value is an array | `422` — `address must be an object` |
+| Nested object is `{}` (empty) | `422` — one error per missing required child field |
+| Optional nested object omitted | passes — no child fields validated |
+| Nested child constraint violation | `422` — `address.postcode must be at least 3 characters` |
+| PATCH with nested field absent | passes — absent fields are not validated |
+| PUT with nested required fields missing | `422` — all required nested fields must be present |
+| Inline object `required` flag | not supported by Mongoose at the parent level — only child fields carry required constraints |
 
 ```json
 {
@@ -395,7 +593,7 @@ custom: [
 
 ---
 
-## V1 Scope
+## Shipped
 
 - [x] Schema parser
 - [x] Route builder (framework agnostic)
@@ -409,7 +607,7 @@ custom: [
 - [x] Search (all-fields + single-field, empty/whitespace ignored)
 - [x] Population (mongoose refs, respects ?fields= projection)
 - [x] Hooks (before/after per operation)
-- [x] Custom routes
+- [x] Custom routes (supports GET, POST, PUT, PATCH, DELETE, HEAD)
 - [x] Response shape (default + customizable)
 - [x] Document transform (per-resource + per-route)
 - [x] Rate limiting (built-in + bring your own)
@@ -421,41 +619,53 @@ custom: [
 - [x] TypeScript client SDK (`@schemaroute/sdk`)
 - [x] Shared types package (`@schemaroute/common`)
 - [x] Debug logging (opt-in, silent by default)
+- [x] `PATCH /:id` route — partial updates via `$set`; partial validation skips required checks for absent fields
+- [x] `?populate=` query param on `getOne` — parity with `getAll`
+- [x] Populate field selection — `populate: [{ path: 'category', select: 'name slug' }]` prevents sensitive field leaking
+- [x] Nested schema validation — recurses into embedded sub-documents; dot-notation error paths (e.g. `address.street`)
+- [x] Soft delete — `softDelete: true` sets `deletedAt`/`isDeleted`; reads auto-exclude deleted docs; restore via PATCH
+- [x] Transform output validation — `debug: true` warns when transform silently drops fields
+- [x] `@schemaroute/fastify` adapter — full feature parity with Express adapter
+- [x] TypeScript generics on SDK — `createSDK<{ products: Product }>()` returns fully typed responses; `patch()` method added
+- [x] Multitenancy / query scoping — `scope: (req) => ({ tenantId })` auto-applied to every query, create, update, patch, delete
+- [x] Shared adapter utilities in `@schemaroute/core` — `deriveModelName`, `isValidObjectId`, `toMongoosePopulate`, `assertConnected`, `registerModel`, `makeResolveModel`, soft-delete helpers; both adapters import from core, no duplication
+- [x] Hook `ctx` second argument — every hook receives `ctx` with `ctx.user`, `ctx.req`, `ctx.headers`, `ctx.query`, `ctx.params`; hooks can now access the authenticated user and raw request without workarounds
+- [x] `?fields=` query param on `getOne` — `GET /:id?fields=name,price` now works; full parity with `getAll`
+- [x] `expose` field whitelist — resource-level `expose: ['name', 'price']` applied as the final gate on every response; DB-only fields (password, tokens, internal flags) can never leak regardless of transform or populate
+- [x] `maxBodySize` per resource — rejects oversized POST/PUT/PATCH bodies via Content-Length header (fast path) with a parsed-body byte-count fallback for chunked transfers; GET and DELETE unaffected
+- [x] `prefix` for API versioning — `prefix: '/v1'` prepends to all auto-generated CRUD paths; custom routes use their own full path and are unaffected
 
-## V1.1 Planned
+## Remaining
 
-- [ ] `PATCH /:id` route for partial updates
-- [ ] `?populate=` query param support on `getOne`
-- [ ] Soft delete (`deletedAt` / `isDeleted` flag)
-- [ ] Nested schema validation (recurse into embedded sub-documents)
-- [ ] GitHub Actions CI/CD pipeline (test on PR, publish on tag)
-- [ ] `CHANGELOG.md`
-- [ ] Integration test suite covering real HTTP scenarios end-to-end
-- [ ] `npm pkg fix` — normalise `repository.url` in all `package.json` files
-- [ ] Role-based access control at route level (`roles: ['admin']`)
-- [ ] `maxBodySize` option per route
-- [ ] Populate field selection — specify which fields to return from a populated ref (e.g. `populate: [{ path: 'category', select: 'name slug' }]`)
-- [ ] Built-in health endpoint option (`health: true` in `createAPI`)
-- [ ] Transform output validation — warn when transform silently drops required fields
+**Infrastructure (blocks everything else)**
+- [ ] GitHub Actions CI/CD pipeline — run tests on every PR, publish on version tag via Changesets
+- [ ] `CHANGELOG.md` — consumers cannot tell what changed between versions without reading raw commits
+- [ ] Integration test suite — unit tests cover modules at 99% but no real HTTP end-to-end coverage; needs `mongodb-memory-server` so CI runs without external deps
+- [ ] `npm pkg fix` — normalise `repository.url` in all `package.json` files (noisy on every publish)
 
-## V1.2 Planned
+**API Features (user-facing, high impact)**
+- [ ] Built-in health endpoint — `health: true` in `createAPI` auto-registers `GET /health`; needed for k8s liveness/readiness probes
+- [ ] Bulk operations — `POST /resource/bulk` and `DELETE /resource/bulk` with hooks and scope support
 
-- [ ] `@schemaroute/fastify` adapter
-- [ ] Distributed rate limiting support (Redis-backed, built-in option)
-- [ ] Bulk operations — `POST /resource/bulk`, `DELETE /resource/bulk`
-- [ ] `select` query param on `getOne` (field selection parity with `getAll`)
-- [ ] SDK retry logic with configurable timeout and exponential backoff
-- [ ] Request ID / tracing — `x-request-id` propagation through hooks and logs
-- [ ] Response caching hooks (e.g. `afterGetAll`, `afterGetOne` for cache invalidation)
-- [ ] Plugin system — allow third-party packages to extend SchemaRoute behaviour
-- [ ] API versioning — `version` / `prefix` option in `createAPI` (e.g. `/v1/products`)
-- [ ] TypeScript generics on SDK — pass schema type to get fully typed responses (`Product[]`)
-- [ ] Connection circuit breaker — queue or retry requests when MongoDB reconnects
-- [ ] Multitenancy / query scoping — `scope: (req) => ({ userId: req.user.id })` auto-applied to every query
-- [ ] Global event system — `schemaroute.on('create', handler)` across all resources
-- [ ] File upload support — `multipart/form-data` handling
-- [ ] Response compression — built-in `gzip`/`brotli` option
-- [ ] Documentation site — Docusaurus or VitePress with searchable, navigable docs
+**Reliability**
+- [ ] Connection circuit breaker — open on repeated failures, half-open on recovery; prevents thundering-herd reconnect storms
+- [ ] Distributed rate limiting — built-in Redis-backed option; current in-memory limiter is per-instance so effective limit is `max × instances`
+
+**SDK**
+- [ ] SDK retry logic — `{ retries: 3, backoff: 'exponential', timeout: 5000 }` option; retry on transient errors (503, network timeout), not on client errors (400, 422)
+
+**Observability**
+- [ ] Request ID / tracing — read `x-request-id` from request (or generate one), attach to hook context, include in error responses and debug logs
+- [ ] Response caching hooks — `afterGetAll` / `afterGetOne` hooks for cache population; `cacheKey` option so SchemaRoute can check cache before hitting MongoDB
+
+**Extensibility**
+- [ ] Global event system — `schemaroute.on('create', auditLog)` to subscribe to events across all resources from one place
+- [ ] Plugin system — `use(plugin)` API for third-party packages to hook into the request lifecycle or extend config
+- [ ] File upload support — `upload` option per route; multer-compatible; files available in hooks via request context
+- [ ] Response compression — `compression: true` option at resource or global level; applies to read routes only
+
+**Documentation**
+- [ ] Documentation site — Docusaurus or VitePress with getting-started guide, full config reference, migration guide, and live examples
 
 ---
 
@@ -463,7 +673,19 @@ custom: [
 
 ### What's done well
 
-- **Silent by default logging** — `logger.ts` gates all output behind `debug: true`. Libraries must never log unconditionally.
+- **Hook `ctx` includes `ctx.req`** — every hook receives the full raw framework request object via `ctx.req`. This means hooks can access `req.ip`, `req.socket`, custom properties set by auth middleware, and anything else on the request without being coupled to Express types. `ctx.user` is read from `req.user` (set by auth middleware). `ctx.headers`, `ctx.query`, and `ctx.params` are serialisable snapshots.
+- **`expose` is the final gate** — `applyExposeFilter` runs after transform and populate, so sensitive fields cannot leak regardless of what earlier pipeline stages return. `_id` is always included unless explicitly listed. Applied to all 6 CRUD operations on both adapters.
+- **`maxBodySize` uses a two-path guard** — a Content-Length header check (fast path, rejects before body is read) plus a parsed-body byte-count fallback for chunked transfers that omit Content-Length. A second `express.json({ limit })` parser would not work because Express skips re-parsing if `req.body` is already set by the app-level parser.
+- **`prefix` strips trailing slash** — `'/v1/'` and `'/v1'` both produce `/v1/products`, not `/v1//products`. Custom routes define their own full path and are not affected.
+- **`?fields=` on `getOne`** — query param takes precedence over `routeConfig.select` and `resourceConfig.select`. When active, only the listed fields are fetched from MongoDB via projection. `expose` is still applied after, so requesting a field outside the whitelist via `?fields=` still strips it.
+- **Soft delete uses `$ne: true`** — the exclusion filter is `{ isDeleted: { $ne: true } }` rather than `{ isDeleted: false }`. This means documents created before soft delete was enabled (which have no `isDeleted` field) are still returned — `null` and `undefined` both satisfy `$ne: true`. A second `DELETE` on an already-soft-deleted document returns `404` because the find filter includes the soft-delete exclusion.
+- **Scope is applied at the find-filter level** — not as middleware. This means cross-tenant reads and writes return `404` (not `403`), which avoids leaking the existence of other tenants' documents.
+- **Transform output validation is debug-only** — `applyTransformWithValidation` only fires the dropped-fields warning when `debug: true`. In production it is a zero-cost pass-through. `__v` is excluded from the check since it is always stripped from responses anyway.
+- **SDK generics use a type map** — `createSDK<{ products: Product }>()` maps resource names to document types. The constraint `Record<string, unknown>` is required on the type map entries so TypeScript can safely index them. Without the generic the SDK falls back to `Record<string, unknown>` for all resources.
+- **Nested schema validation** — the validator recurses into embedded sub-document fields. Both explicit sub-schemas (`address: new Schema({ street: String })`) and inline objects (`address: { street: { type: String } }`) are supported. Error field names use dot-notation (e.g. `address.street`) so clients know exactly which nested field failed. Absent fields are left unchanged. Validation is also partial — required-field checks are skipped for fields not included in the body.
+- **PATCH uses `$set`** — partial updates only write the fields present in the request body. Config entries take precedence over `?populate=` query param entries for the same path, so a server-side select restriction cannot be overridden by the client.
+- **`?populate=` on getOne** — `getOne` now supports `?populate=` query param with the same deduplication and validation logic as `getAll`. Config entries win over query param entries for the same path.
+- **HEAD in custom routes** — `HttpMethod` includes `HEAD` for custom routes that need to return headers only (e.g. existence checks, cache validation) without a response body. HEAD is not auto-generated for CRUD routes.
 - **Lazy model resolution** — `resolveModel()` is called at request time, not at registration time, so the active connection is always used.
 - **Single JSON error handler** — the malformed-body handler is registered once per app instance via a `WeakSet` guard, preventing duplicate middleware.
 - **Type coercion in filters** — `?price=99` is coerced to `{ price: 99 }` (number) before the Mongoose query, preventing silent type mismatches.
@@ -485,27 +707,29 @@ custom: [
 | **Rate limiter** | Built-in is in-memory and single-process. For multi-instance or distributed deployments, use the `rateLimit: [middleware]` array syntax with a Redis-backed solution (e.g. `rate-limiter-flexible`). |
 | **`MiddlewareFn` uses `any`** | Intentional — keeps `@schemaroute/common` framework-agnostic without importing Express types. Adapters cast to `RequestHandler` at the boundary. |
 | **Mongoose fallback** | If `mongoose` is not passed as the 5th argument, `createAPI` falls back to `require('mongoose')`. This may be a different instance than the one you connected with. Always pass your instance explicitly. |
-| **Update validation** | `validation: true` on `update` runs the full schema validation (all required fields). For partial updates where only some fields are sent, consider using `beforeUpdate` to fill defaults or disable validation and rely on Mongoose's `runValidators`. |
-| **`object` FieldType** | Embedded sub-documents are parsed as `'object'` type. The validator does not recurse into nested schemas — only top-level fields are validated. |
-| **No PATCH route** | Only `PUT /:id` (full replace) is supported. There is no `PATCH /:id` for partial updates. Planned for v1.1. |
-| **`?populate=` on getOne** | `getOne` only supports config-level populate, not `?populate=` as a query param. `getAll` supports both. Planned for v1.1. |
-| **No soft delete** | Delete is hard — no `deletedAt` / `isDeleted` flag option. Planned for v1.1. |
+| **Update validation** | `validation: true` on `update` (PUT) runs full schema validation — all required fields must be present. For partial updates, use `patch` (PATCH) instead, which only validates the fields present in the body. |
+| **`object` FieldType** | Embedded sub-documents are parsed as `'object'` type. ~~The validator does not recurse into nested schemas — only top-level fields are validated.~~ **Fixed in v1.1** — both explicit sub-schemas and inline objects are recursed into. |
+| **No PATCH route** | ~~Only `PUT /:id` (full replace) is supported. There is no `PATCH /:id` for partial updates. Planned for v1.1.~~ **Shipped in v1.1.** |
+| **`?populate=` on getOne** | ~~`getOne` only supports config-level populate, not `?populate=` as a query param.~~ **Shipped in v1.1.** |
+| **Populate leaks full sub-document** | ~~When populating a ref, the entire referenced document is returned including potentially sensitive fields.~~ **Fixed in v1.1** via `populate: [{ path, select }]`. |
+| **No soft delete** | ~~Delete is hard — no `deletedAt` / `isDeleted` flag option.~~ **Shipped in v1.1.** |
 | **No CI/CD pipeline** | No GitHub Actions workflow exists yet. Tests and publish are run manually. Planned for v1.1. |
 | **No CHANGELOG** | No `CHANGELOG.md` exists. Consumers cannot tell what changed between versions without reading raw commits. Planned for v1.1. |
 | **Integration test gap** | Unit tests cover individual modules at 99% but do not cover real HTTP request/response scenarios end-to-end. The `test-api` integration tests require a live MongoDB Atlas connection and are not run in CI. Planned for v1.1. |
-| **Single adapter** | Only Express is supported. Fastify, Koa, Hono, and other frameworks require a custom adapter. `@schemaroute/fastify` planned for v1.2. |
+| **Single adapter** | ~~Only Express is supported.~~ **Shipped in v1.2** — `@schemaroute/fastify` now available. Koa, Hono, and others still require a custom adapter. |
 | **`repository.url` warning on publish** | All `package.json` files have a non-normalised `repository.url` that npm auto-corrects on every publish. Minor but noisy. Fix planned for v1.1. |
-| **No built-in auth/roles** | Auth is entirely user-supplied via middleware. There is no `roles` or `permissions` option at the route level (e.g. `create: { roles: ['admin'] }`). Users must write and wire their own auth middleware for every resource. Planned for v1.1. |
-| **No request body size limit** | SchemaRoute does not enforce or document a `maxBodySize` per route. A malicious client can send a large payload and the server will attempt to parse it. Users must configure `express.json({ limit })` themselves. Planned for v1.1. |
-| **Transform silently drops fields** | If a user-defined `transform` function omits fields like `createdAt`, they silently disappear from the response with no warning. No fallback or validation of transform output. Planned for v1.1. |
+| **No request body size limit** | ~~SchemaRoute does not enforce a `maxBodySize` per route.~~ **Shipped in v1.3** — Content-Length guard with chunked-transfer fallback. |
+| **No API versioning** | ~~There is no `prefix` option in `createAPI`.~~ **Shipped in v1.3** — `prefix: '/v1'` prepends to all auto-generated CRUD paths. |
+| **No `expose` whitelist** | ~~DB-only fields could leak through populate or transform.~~ **Shipped in v1.3** — `expose: ['name', 'price']` is the final gate on every response. |
+| **No `ctx.req` in hooks** | ~~Hooks could not access the raw request object.~~ **Shipped in v1.3** — `ctx.req` passed to every hook. |
+| **No `?fields=` on getOne** | ~~`GET /:id` did not support `?fields=name,price`.~~ **Shipped in v1.3** — full parity with `getAll`. |
+| **Transform silently drops fields** | ~~If a user-defined `transform` function omits fields, they silently disappear.~~ **Fixed in v1.1** — `debug: true` warns when transform drops fields. |
 | **SDK has no retry or timeout** | The SDK throws immediately on network failure. There is no retry logic, no configurable timeout, and no exponential backoff. Planned for v1.2. |
 | **No request ID / tracing** | There is no `x-request-id` propagation or built-in request correlation. Failed requests cannot be traced through logs back to a specific API call. Planned for v1.2. |
-| **Populate leaks full sub-document** | When populating a ref, the entire referenced document is returned — all fields including potentially sensitive ones (e.g. `password`). There is no way to specify which fields to return from a populated ref at the config level. Planned for v1.1. |
 | **No built-in health endpoint** | There is no `health: true` option in `createAPI`. Every user must manually add `GET /health` to their app. Planned for v1.1. |
-| **No API versioning** | There is no `version` or `prefix` option in `createAPI`. When a schema changes, all consumers break immediately. No `/v1/` prefix support. Planned for v1.2. |
-| **No TypeScript generics on SDK** | `api.products.getAll()` returns `unknown` typed data. There is no way to pass a schema type to the SDK and get back a typed response (e.g. `Product[]`). Type safety is lost entirely on the client side. Planned for v1.2. |
+| **No TypeScript generics on SDK** | ~~`api.products.getAll()` returns `unknown` typed data.~~ **Shipped in v1.2** — `createSDK<{ products: Product }>()` returns fully typed responses. |
 | **No connection circuit breaker** | SchemaRoute returns 503 when MongoDB disconnects but does not queue or retry requests when the connection recovers. No circuit breaker pattern at the handler level. Planned for v1.2. |
-| **No multitenancy / query scoping** | There is no `scope` option to auto-apply per-request filters to every query (e.g. `scope: (req) => ({ userId: req.user.id })`). Users must manually add filters in every `beforeCreate`/`beforeUpdate` hook for every resource. Planned for v1.2. |
+| **No multitenancy / query scoping** | ~~There is no `scope` option.~~ **Shipped in v1.2** — `scope: (req) => ({ tenantId })` auto-applied to every operation. |
 | **No global event system** | There is no way to subscribe to events across all resources globally (e.g. `schemaroute.on('create', auditLog)`). Hooks must be added individually to every resource. Planned for v1.2. |
 | **No file upload support** | `multipart/form-data` is completely unsupported. Resources that need file uploads must bypass SchemaRoute entirely with a custom route. Planned for v1.2. |
 | **No response compression** | No built-in `gzip`/`brotli` option. For large list responses this matters in production. Users must add `compression` middleware themselves. Planned for v1.2. |
@@ -513,12 +737,13 @@ custom: [
 
 ### Future adapter guidance
 
-When building a new framework adapter (e.g. `@schemaroute/fastify`):
+When building a new framework adapter (e.g. `@schemaroute/koa`):
 1. Import `createSchemaRoute` from `@schemaroute/core` — do not duplicate schema parsing
-2. Register custom routes **before** `/:id` routes
-3. Call `resolveModel()` lazily at request time
-4. Use `buildRequestContext` pattern to keep hooks framework-agnostic
-5. Register the JSON parse error handler once per app instance
+2. Import shared utilities from `@schemaroute/core`: `deriveModelName`, `isValidObjectId`, `toMongoosePopulate`, `assertConnected`, `registerModel`, `makeResolveModel`, `resolveSoftDeleteFields`, `buildSoftDeleteFilter`, `buildSoftDeleteUpdate`
+3. Register custom routes **before** `/:id` routes
+4. Call `makeResolveModel()` to get a lazy model factory — never resolve at registration time
+5. The only framework-specific code should be reading `req.body`/`req.params`/`req.query` and calling the framework's response API
+6. See `@schemaroute/fastify` as the reference implementation alongside `@schemaroute/express`
 
 ---
 
@@ -534,11 +759,20 @@ When building a new framework adapter (e.g. `@schemaroute/fastify`):
 | Pagination | ❌ | ✅ | ✅ |
 | Search | ❌ | ❌ | ✅ |
 | Population | ❌ | ❌ | ✅ |
-| Hooks | ❌ | ❌ | ✅ |
+| Populate field selection | ❌ | ❌ | ✅ |
+| Partial updates (PATCH) | ❌ | ❌ | ✅ |
+| Soft delete | ❌ | ❌ | ✅ |
+| Multitenancy / scope | ❌ | ❌ | ✅ |
+| Hooks + full request ctx | ❌ | ❌ | ✅ |
 | Custom routes | ❌ | ✅ | ✅ |
+| HEAD method support | ❌ | ❌ | ✅ |
 | Response shape | ❌ | ❌ | ✅ |
 | Rate limiting | ❌ | ❌ | ✅ |
 | 3-layer config override | ❌ | ❌ | ✅ |
+| Expose field whitelist | ❌ | ❌ | ✅ |
+| API versioning (prefix) | ❌ | ❌ | ✅ |
+| Body size limiting | ❌ | ❌ | ✅ |
 | OpenAPI docs | ❌ | ❌ | ✅ |
-| TypeScript SDK | ❌ | ❌ | ✅ |
+| TypeScript SDK (typed generics) | ❌ | ❌ | ✅ |
+| Fastify adapter | ❌ | ❌ | ✅ |
 | Zero boilerplate | ⚠️ | ❌ | ✅ |

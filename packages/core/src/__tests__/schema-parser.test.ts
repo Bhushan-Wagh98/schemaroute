@@ -110,4 +110,50 @@ describe('parseSchema', () => {
     expect(parsed.refFields).toContain('brand')
     expect(parsed.refFields).not.toContain('name')
   })
+
+  it('parses embedded sub-document and populates child fields', () => {
+    const schema = new Schema({
+      address: {
+        street:  { type: String, required: true },
+        city:    { type: String, required: true },
+        postcode: { type: String },
+      },
+    })
+    const parsed  = parseSchema(schema)
+    const address = parsed.fields.find(f => f.name === 'address')!
+
+    expect(address.type).toBe('object')
+    expect(address.fields).toBeDefined()
+    expect(address.fields!.map(f => f.name)).toContain('street')
+    expect(address.fields!.map(f => f.name)).toContain('city')
+    expect(address.fields!.map(f => f.name)).toContain('postcode')
+  })
+
+  it('marks nested required fields correctly', () => {
+    const schema = new Schema({
+      address: {
+        street: { type: String, required: true },
+        notes:  { type: String },
+      },
+    })
+    const parsed  = parseSchema(schema)
+    const address = parsed.fields.find(f => f.name === 'address')!
+    const byName  = Object.fromEntries(address.fields!.map(f => [f.name, f]))
+
+    expect(byName['street'].required).toBe(true)
+    expect(byName['notes'].required).toBe(false)
+  })
+
+  it('does not include dot-notation paths as top-level fields', () => {
+    const schema = new Schema({
+      address: {
+        street: { type: String },
+      },
+    })
+    const parsed = parseSchema(schema)
+    const names  = parsed.fields.map(f => f.name)
+
+    expect(names).not.toContain('address.street')
+    expect(names).toContain('address')
+  })
 })

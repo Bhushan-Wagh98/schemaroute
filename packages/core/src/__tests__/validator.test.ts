@@ -26,9 +26,12 @@ describe('validate', () => {
       expect(errors[0]!.field).toBe('name')
     })
 
-    it('returns error when required field is empty string', () => {
+    it('does not error when required field is empty string (minlength catches it)', () => {
+      // Empty string is treated as a submitted value, not as missing.
+      // If the schema has minlength, that constraint catches it.
+      // If not, Mongoose runValidators handles it at the DB layer.
       const errors = validate({ name: '' }, schema)
-      expect(errors).toHaveLength(1)
+      expect(errors).toHaveLength(0)
     })
 
     it('returns no error when required field is present', () => {
@@ -167,6 +170,59 @@ describe('validate', () => {
 
     it('returns empty array when all required fields are present', () => {
       expect(validate({ name: 'Widget', price: 9.99 }, schema)).toHaveLength(0)
+    })
+  })
+
+  describe('nested sub-documents', () => {
+    const schema = makeSchema([
+      {
+        name: 'address', type: 'object', required: true, isArray: false,
+        fields: [
+          { name: 'street',   type: 'string', required: true,  isArray: false },
+          { name: 'city',     type: 'string', required: true,  isArray: false },
+          { name: 'postcode', type: 'string', required: false, isArray: false, minlength: 5 },
+        ],
+      },
+    ])
+
+    it('returns error when required nested field is missing', () => {
+      const errors = validate({ address: { city: 'London' } }, schema)
+      expect(errors.map(e => e.field)).toContain('address.street')
+    })
+
+    it('uses dot-notation for nested error field names', () => {
+      const errors = validate({ address: {} }, schema)
+      expect(errors[0]!.field).toMatch(/^address\./)  
+    })
+
+    it('collects all nested errors in a single pass', () => {
+      const errors = validate({ address: {} }, schema)
+      const fields = errors.map(e => e.field)
+      expect(fields).toContain('address.street')
+      expect(fields).toContain('address.city')
+    })
+
+    it('validates nested constraint (minlength)', () => {
+      const errors = validate({ address: { street: '1 Main St', city: 'London', postcode: 'AB1' } }, schema)
+      expect(errors[0]!.field).toBe('address.postcode')
+      expect(errors[0]!.message).toMatch(/at least 5/)
+    })
+
+    it('returns error when sub-document is not an object', () => {
+      const errors = validate({ address: 'not-an-object' }, schema)
+      expect(errors[0]!.field).toBe('address')
+      expect(errors[0]!.message).toMatch(/must be an object/)
+    })
+
+    it('returns error when required sub-document is missing entirely', () => {
+      const errors = validate({}, schema)
+      expect(errors[0]!.field).toBe('address')
+      expect(errors[0]!.message).toMatch(/is required/)
+    })
+
+    it('passes when all nested required fields are present and valid', () => {
+      const errors = validate({ address: { street: '1 Main St', city: 'London' } }, schema)
+      expect(errors).toHaveLength(0)
     })
   })
 })

@@ -73,6 +73,12 @@ export interface UpdateParams {
   headers?: Record<string, string>
 }
 
+/** Options accepted by `patch`. */
+export interface PatchParams {
+  /** Per-request header overrides. */
+  headers?: Record<string, string>
+}
+
 /** Options accepted by `delete`. */
 export interface DeleteParams {
   /** Per-request header overrides. */
@@ -87,7 +93,7 @@ export interface ListResponse<T> {
   meta: ResponseMeta
 }
 
-/** Response returned by `getOne`, `create`, and `update`. */
+/** Response returned by `getOne`, `create`, `update`, and `patch`. */
 export interface SingleResponse<T> {
   data: T
 }
@@ -132,8 +138,13 @@ export class SDKError extends Error {
 // ─── Resource Client Interface ────────────────────────────────────────────────
 
 /**
- * Typed client for a single resource — exposes all five CRUD methods.
- * `T` is the document shape inferred from the resource name and schema.
+ * Typed client for a single resource — exposes all six CRUD methods.
+ * `T` is the document shape — pass it via `createSDK`'s type parameter for
+ * fully typed responses across all methods.
+ *
+ * @example
+ * const api = createSDK<{ products: Product }>('http://localhost:3000', [productsInstance])
+ * const { data } = await api.products.getAll()  // data is Product[]
  */
 export interface ResourceClient<T extends Record<string, unknown>> {
   /** Fetch a paginated, filtered, sorted list of documents. */
@@ -142,8 +153,10 @@ export interface ResourceClient<T extends Record<string, unknown>> {
   getOne(id: string, params?: GetOneParams): Promise<SingleResponse<T>>
   /** Create a new document. */
   create(body: Partial<T>, params?: CreateParams): Promise<SingleResponse<T>>
-  /** Update an existing document by ID. */
+  /** Full document replacement by ID (PUT). */
   update(id: string, body: Partial<T>, params?: UpdateParams): Promise<SingleResponse<T>>
+  /** Partial document update by ID (PATCH) — only sent fields are written. */
+  patch(id: string, body: Partial<T>, params?: PatchParams): Promise<SingleResponse<T>>
   /** Delete a document by ID. */
   delete(id: string, params?: DeleteParams): Promise<DeleteResponse>
 }

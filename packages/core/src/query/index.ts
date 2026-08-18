@@ -6,7 +6,7 @@
  * by the `getAll` handler.
  */
 
-import type { ParsedSchema, PaginationMode, SearchMode, ResponseMeta } from '../types'
+import type { ParsedSchema, PaginationMode, SearchMode, ResponseMeta, PopulateOption } from '../types'
 import type { QueryParams, ResolvedQuery, PagePagination, CursorPagination } from './types'
 import { buildFieldFilter }      from './filter'
 import { applySearchFilter }     from './search'
@@ -41,7 +41,7 @@ export function resolveQuery(
     fields?:      boolean
     select?:      string[]
     exclude?:     string[]
-    populate?:    string[]
+    populate?:    PopulateOption[]
   }
 ): ResolvedQuery {
   const schemaFieldNames = new Set(parsedSchema.fields.map(field => field.name))

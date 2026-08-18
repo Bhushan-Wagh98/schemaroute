@@ -1,6 +1,6 @@
 {
   "name": "@schemaroute/core",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Framework-agnostic core for SchemaRoute — generates CRUD routes from Mongoose schemas",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

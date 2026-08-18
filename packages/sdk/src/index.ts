@@ -7,17 +7,28 @@
  * optional default headers. It returns a typed object where each key is a
  * resource name and each value is a `ResourceClient` with full CRUD methods.
  *
+ * Pass a type map as the generic parameter to get fully typed responses:
+ *
  * @example
  * import { createSDK } from '@schemaroute/sdk'
  *
- * const api = createSDK('http://localhost:3000', [categoriesInstance, productsInstance], {
- *   headers: { 'x-api-key': 'secret123' },
- * })
+ * interface Product { _id: string; name: string; price: number }
+ * interface Category { _id: string; name: string; slug: string }
  *
- * const { data, meta } = await api.categories.getAll({ page: 1, search: 'elec' })
- * const product        = await api.products.getOne('abc123')
- * const created        = await api.products.create({ name: 'Laptop', price: 999 })
- * await api.products.delete('abc123')
+ * const api = createSDK<{ products: Product; categories: Category }>(
+ *   'http://localhost:3000',
+ *   [productsInstance, categoriesInstance],
+ *   { headers: { 'x-api-key': 'secret123' } }
+ * )
+ *
+ * const { data } = await api.products.getAll({ page: 1 })
+ * // data is Product[] — fully typed
+ *
+ * const product = await api.products.getOne('abc123')
+ * // product.data is Product
+ *
+ * const patched = await api.products.patch('abc123', { price: 799 })
+ * // patched.data is Product
  */
 
 import type { SchemaRouteInstance } from '@schemaroute/common'
@@ -31,6 +42,7 @@ export type {
   GetOneParams,
   CreateParams,
   UpdateParams,
+  PatchParams,
   DeleteParams,
   ListResponse,
   SingleResponse,
@@ -42,11 +54,11 @@ export type {
 
 /**
  * The SDK object returned by `createSDK`.
- * Each key is a resource name mapped to its `ResourceClient`.
+ * Each key is a resource name mapped to its fully typed `ResourceClient<T>`.
  *
  * @example
- * const api: SchemaRouteSDK<{ categories: Category; products: Product }>
- *   = createSDK(baseUrl, instances)
+ * const api: SchemaRouteSDK<{ products: Product; categories: Category }>
+ *   = createSDK<{ products: Product; categories: Category }>(baseUrl, instances)
  */
 export type SchemaRouteSDK<TResources extends Record<string, Record<string, unknown>>> = {
   [K in keyof TResources]: ResourceClient<TResources[K]>
@@ -58,6 +70,9 @@ export type SchemaRouteSDK<TResources extends Record<string, Record<string, unkn
  * Creates a fully typed SDK client from an array of `SchemaRouteInstance`
  * objects. Each instance becomes a named resource on the returned object.
  *
+ * Pass a type map as the generic parameter to get fully typed responses.
+ * Without the generic, all methods return `Record<string, unknown>`.
+ *
  * Uses native `fetch` — no additional HTTP dependencies required.
  * Throws `SDKError` on non-2xx responses with structured error information.
  *
@@ -67,31 +82,26 @@ export type SchemaRouteSDK<TResources extends Record<string, Record<string, unkn
  * @returns         An object keyed by resource name, each with CRUD methods.
  *
  * @example
- * // With auth headers
- * const api = createSDK('http://localhost:3000', [categoriesInstance, productsInstance], {
- *   headers: { 'x-api-key': 'secret123', 'x-role': 'admin' },
- * })
+ * // Untyped — all methods return Record<string, unknown>
+ * const api = createSDK('http://localhost:3000', [productsInstance])
  *
- * // getAll with filters, search, pagination
- * const { data, meta } = await api.products.getAll({
- *   filter: { status: 'active' },
- *   sort:   'price',
- *   order:  'asc',
- *   page:   1,
- *   limit:  5,
- * })
+ * // Typed — pass your document interfaces as a type map
+ * interface Product { _id: string; name: string; price: number }
+ * const api = createSDK<{ products: Product }>('http://localhost:3000', [productsInstance])
  *
- * // Per-request header override
- * const created = await api.products.create(
- *   { name: 'Laptop', price: 999, stock: 10 },
- *   { headers: { 'x-api-key': 'secret123' } }
- * )
+ * const { data, meta } = await api.products.getAll({ page: 1, limit: 10 })
+ * // data is Product[]
+ *
+ * const patched = await api.products.patch('abc123', { price: 799 })
+ * // patched.data is Product
  */
-export function createSDK(
+export function createSDK<
+  TResources extends Record<string, Record<string, unknown>> = Record<string, Record<string, unknown>>
+>(
   baseUrl:   string,
   instances: SchemaRouteInstance[],
   options:   SDKOptions = {}
-): Record<string, ResourceClient<Record<string, unknown>>> {
+): SchemaRouteSDK<TResources> {
   const defaultHeaders = options.headers ?? {}
   const sdk: Record<string, ResourceClient<Record<string, unknown>>> = {}
 
@@ -103,5 +113,5 @@ export function createSDK(
     )
   }
 
-  return sdk
+  return sdk as SchemaRouteSDK<TResources>
 }

@@ -5,6 +5,8 @@
  * with internal query-handling concerns.
  */
 
+import type { PopulateOption } from '../types'
+
 // ─── Raw Query Params ─────────────────────────────────────────────────────────
 
 /**
@@ -25,7 +27,7 @@ export interface QueryParams {
   page?:        string
   limit?:       string
   cursor?:      string
-  // Populate
+  // Populate — comma-separated ref field names (e.g. `?populate=category,brand`)
   populate?:    string
 }
 
@@ -39,8 +41,13 @@ export interface ResolvedQuery {
   sort:       Record<string, 1 | -1>
   /** MongoDB projection object, or `null` when no projection is needed. */
   projection: Record<string, 0 | 1> | null
-  /** Validated ref field names to populate. */
-  populate:   string[]
+  /**
+   * Validated populate options. May include `PopulateFieldConfig` objects
+   * carrying a `select` restriction to prevent sensitive fields leaking
+   * through populated refs. Config entries take precedence over query param
+   * entries for the same path.
+   */
+  populate:   PopulateOption[]
   /** Resolved pagination state, or `null` when pagination is disabled. */
   pagination: PagePagination | CursorPagination | null
   /** Validation errors collected during query resolution. */

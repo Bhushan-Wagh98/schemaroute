@@ -34,5 +34,6 @@ export function buildRequestContext(expressRequest: Request): RequestContext {
     query:   req.query   as Record<string, unknown>,
     params:  req.params  as Record<string, string>,
     user:    req.user,
+    req:     req         as unknown as Record<string, unknown>,
   }
 }

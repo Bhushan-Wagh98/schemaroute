@@ -41,4 +41,30 @@ describe('resolvePopulateFields', () => {
     const fields = resolvePopulateFields({}, [], VALID_REFS)
     expect(fields).toEqual([])
   })
+
+  it('preserves select restriction from config PopulateFieldConfig object', () => {
+    const fields = resolvePopulateFields({}, [{ path: 'category', select: 'name slug' }], VALID_REFS)
+    expect(fields).toEqual([{ path: 'category', select: 'name slug' }])
+  })
+
+  it('config object entry wins over query param string for same path', () => {
+    const fields = resolvePopulateFields(
+      { populate: 'category' },
+      [{ path: 'category', select: 'name' }],
+      VALID_REFS
+    )
+    expect(fields).toHaveLength(1)
+    expect(fields[0]).toEqual({ path: 'category', select: 'name' })
+  })
+
+  it('mixes PopulateFieldConfig objects and plain strings', () => {
+    const fields = resolvePopulateFields(
+      { populate: 'brand' },
+      [{ path: 'category', select: 'name' }],
+      VALID_REFS
+    )
+    expect(fields).toHaveLength(2)
+    expect(fields).toContainEqual({ path: 'category', select: 'name' })
+    expect(fields).toContainEqual('brand')
+  })
 })

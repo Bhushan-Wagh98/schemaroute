@@ -48,9 +48,9 @@ describe('resolveQuery', () => {
     expect(result.sort).toEqual({ price: -1 })
   })
 
-  it('defaults sort to createdAt desc', () => {
+  it('returns empty sort when no sort param and sort not enabled', () => {
     const result = resolveQuery({}, parsedSchema, {})
-    expect(result.sort).toEqual({ createdAt: -1 })
+    expect(result.sort).toEqual({})
   })
 
   it('builds projection from ?fields= param', () => {

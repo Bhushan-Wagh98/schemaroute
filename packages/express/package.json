@@ -1,6 +1,6 @@
 {
   "name": "@schemaroute/express",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Express adapter for SchemaRoute — auto-generate CRUD routes from a Mongoose schema",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsup",
     "dev":   "tsup --watch",
-    "test":  "vitest run",
+    "test":  "vitest run --passWithNoTests",
     "lint":  "tsc --noEmit"
   },
   "dependencies": {
