@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validate } from '../validator'
+import { validate } from '../parsing/validator'
 import type { ParsedSchema } from '../types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

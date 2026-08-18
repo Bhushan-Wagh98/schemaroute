@@ -36,6 +36,8 @@ export type {
   UpdateRouteConfig,
   PatchRouteConfig,
   DeleteRouteConfig,
+  RestoreRouteConfig,
+  PurgeRouteConfig,
   CustomRoute,
   ResourceConfig,
   FieldType,

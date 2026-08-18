@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildRoutes } from '../route-builder'
+import { buildRoutes } from '../routing/route-builder'
 
 describe('buildRoutes', () => {
   it('generates all 6 CRUD routes by default', () => {

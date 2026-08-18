@@ -19,8 +19,8 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { buildRoutes }                                          from '../route-builder'
-import { resolveSoftDeleteFields, buildSoftDeleteFilter, buildSoftDeleteUpdate } from '../soft-delete'
+import { buildRoutes }                                          from '../routing/route-builder'
+import { resolveSoftDeleteFields, buildSoftDeleteFilter, buildSoftDeleteUpdate } from '../soft-delete/index'
 
 // ─── Hard delete — route builder ─────────────────────────────────────────────
 

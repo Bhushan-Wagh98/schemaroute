@@ -135,15 +135,15 @@ createAPI(app, ProductSchema, 'products', { debug: true }, mongoose)
 
 ---
 
-## `createAPI(app, schema, resourceName, config?, mongoose?)`
+## `createAPI(app, schemaOrModel, resourceName, config?, mongoose?)`
 
 | Param | Type | Description |
 |---|---|---|
 | `app` | `Application` | Express app instance |
-| `schema` | `Schema` | Mongoose schema |
+| `schemaOrModel` | `Schema \| Model` | Mongoose schema **or** an already-registered Mongoose Model. When a Model is passed, SchemaRoute extracts its schema and connection automatically — no need to pass `mongoose` as the 5th argument |
 | `resourceName` | `string` | Plural resource name — used as the URL base path |
 | `config` | `ResourceConfig` | Optional resource-level configuration |
-| `mongoose` | `Mongoose` | Your mongoose instance — required when using Atlas or a custom connection |
+| `mongoose` | `Mongoose` | Your mongoose instance — required when passing a Schema; optional when passing a Model |
 
 Returns a `SchemaRouteInstance` — pass it to `@schemaroute/docs` or `@schemaroute/sdk`.
 
@@ -310,7 +310,8 @@ createAPI(app, ProductSchema, 'products', {
 | `exclude` | `string[]` | — | Fields to strip from the response |
 | `select` | `string[]` | — | Fields to include in the response |
 | `transform` | `TransformFn` | — | Reshape each document before sending |
-| `expose` | `string[]` | — | Resource-level whitelist — only these fields ever leave the API (applied after transform) |
+| `expose` | `string[]` | — | Resource-level read whitelist — only these fields ever leave the API (applied after transform) |
+| `writable` | `string[]` | — | Resource-level write whitelist — only these fields are accepted in POST/PUT/PATCH bodies |
 | `prefix` | `string` | — | URL prefix for all routes, e.g. `'/v1'` |
 | `maxBodySize` | `string \| number` | — | Reject POST/PUT/PATCH bodies over this size, e.g. `'50kb'` |
 
@@ -339,10 +340,86 @@ beforeCreate: async (data, ctx) => {
 ```
 
 Hook execution order for `create`:
-1. `beforeCreate` — runs **before** validation so computed fields are present when required-field checks run
-2. Schema validation (when `validation: true`)
-3. Persist to MongoDB
-4. `afterCreate` — receives the saved document for side-effects
+1. `writable` filter — strips fields not in the whitelist **before** anything else runs
+2. Scope merge — injects tenant/user fields
+3. `beforeCreate` — runs **before** validation so computed fields are present when required-field checks run
+4. Schema validation (when `validation: true`)
+5. Persist to MongoDB
+6. `afterCreate` — receives the saved document for side-effects
+
+---
+
+## writable — Write Field Whitelist
+
+`writable` is the write-side counterpart to `expose`. When set, only the listed fields are accepted in POST/PUT/PATCH bodies — all other fields are stripped before scope, hooks, or the DB ever see them.
+
+```js
+createAPI(app, UserSchema, 'users', {
+  writable: ['name', 'email', 'tenantId'],  // role, createdBy, isDeleted — never writable by clients
+}, mongoose)
+```
+
+This closes the read/write security symmetry gap:
+
+```
+             Mongoose schema
+                   │
+       ┌───────────┴───────────┐
+       ▼                       ▼
+    READ API                WRITE API
+       │                       │
+    expose                  writable
+ (response gate)         (input gate)
+```
+
+`expose` and `writable` are independent. A field can be readable but not writable (e.g. `createdBy` set by a hook), or both.
+
+---
+
+## Model as second argument
+
+You can pass an already-registered Mongoose Model instead of a Schema. SchemaRoute extracts the schema and connection automatically — no 5th argument needed:
+
+```js
+const Product = mongoose.model('Product', ProductSchema)
+
+// ✅ Model passed — mongoose instance inferred from model.db
+createAPI(app, Product, 'products', { routes: { getAll: { public: true } } })
+
+// ✅ Schema passed — mongoose instance required as 5th arg
+createAPI(app, ProductSchema, 'products', {}, mongoose)
+```
+
+---
+
+## inspectAPI
+
+Print a human-readable summary of what SchemaRoute has registered for a resource:
+
+```js
+import { inspectAPI } from '@schemaroute/core'
+
+const instance = createAPI(app, ProductSchema, 'products', { ... }, mongoose)
+inspectAPI(instance)
+```
+
+```
+[schemaroute] products
+
+  GET    /products                      public
+  GET    /products/:id                  public
+  POST   /products                      middleware: [requireAuth]
+  PUT    /products/:id                  middleware: [requireAuth]
+  PATCH  /products/:id                  middleware: [requireAuth]
+  DELETE /products/:id                  middleware: [requireAuth, requireAdmin]
+
+  Query:    filter ✓  sort ✓  fields ✓  pagination: page  search: all-fields
+  Populate: category (select: name slug)
+  Exposed:  name, price, status, category
+  Writable: name, price, status
+```
+
+Directly attacks the "magic" problem — every route, middleware, and capability is visible at a glance.
 
 ---
 

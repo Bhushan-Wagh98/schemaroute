@@ -26,6 +26,11 @@ export function makeCreateHandler(
     try {
       const model = resolveModel()
       let   data  = { ...(req.body as Record<string, unknown>) }
+      if (resourceConfig.writable) {
+        for (const key of Object.keys(data)) {
+          if (!resourceConfig.writable.includes(key)) delete data[key]
+        }
+      }
       const ctx   = { headers: req.headers as any, query: req.query as any, params: req.params as any, user: (req as any).user, req: req as unknown as Record<string, unknown> }
 
       // Merge scope fields so every created document is auto-tagged with tenant/user context
@@ -43,6 +48,21 @@ export function makeCreateHandler(
       if (routeConfig.validation) {
         const errors = validate(data, parsedSchema)
         if (errors.length) return sendError(reply, 422, 'Validation failed', errors)
+
+        // Verify that all ObjectId ref fields point to existing documents
+        for (const field of parsedSchema.fields) {
+          if (field.type === 'objectid' && field.ref && data[field.name]) {
+            const refModel = model.db.models[field.ref]
+            if (refModel) {
+              const exists = await refModel.exists({ _id: data[field.name] })
+              if (!exists) {
+                return sendError(reply, 422, 'Validation failed', [
+                  { field: field.name, message: `${field.name} references a non-existent ${field.ref}` },
+                ])
+              }
+            }
+          }
+        }
       }
 
       const created = await model.create(data)
@@ -52,9 +72,11 @@ export function makeCreateHandler(
 
       if (routeConfig.afterCreate) await routeConfig.afterCreate(plain, ctx)
 
+      const transformFn = routeConfig.transform ?? resourceConfig.transform
+      const transformed = transformFn ? transformFn(plain) : plain
       const exposed = resourceConfig.expose
-        ? (() => { const r: Record<string, unknown> = {}; for (const f of resourceConfig.expose) if (f in plain) r[f] = plain[f]; if (!resourceConfig.expose.includes('_id') && '_id' in plain) r['_id'] = plain['_id']; return r })()
-        : plain
+        ? (() => { const r: Record<string, unknown> = {}; for (const f of resourceConfig.expose) if (f in transformed) r[f] = transformed[f]; if (!resourceConfig.expose.includes('_id') && '_id' in transformed) r['_id'] = transformed['_id']; return r })()
+        : transformed
       sendSuccess(reply, exposed, {}, resourceConfig.response, 201)
     } catch (err) {
       const status  = isDisconnectedError(err) ? 503 : 500

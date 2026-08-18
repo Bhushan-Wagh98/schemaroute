@@ -1,6 +1,6 @@
 {
   "name": "@schemaroute/common",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Shared TypeScript types for the SchemaRoute ecosystem",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

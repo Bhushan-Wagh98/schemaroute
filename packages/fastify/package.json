@@ -1,6 +1,6 @@
 {
   "name": "@schemaroute/fastify",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Fastify adapter for SchemaRoute — auto-generate CRUD routes from a Mongoose schema",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

@@ -33,6 +33,11 @@ export function makePatchHandler(
         ? resourceConfig.scope(req as unknown as Record<string, unknown>)
         : {}
       let   data        = { ...(req.body as Record<string, unknown>) }
+      if (resourceConfig.writable) {
+        for (const key of Object.keys(data)) {
+          if (!resourceConfig.writable.includes(key)) delete data[key]
+        }
+      }
       const ctx         = { headers: req.headers as any, query: req.query as any, params: req.params as any, user: (req as any).user, req: req as unknown as Record<string, unknown> }
 
       if (routeConfig.beforeUpdate) {
@@ -41,8 +46,6 @@ export function makePatchHandler(
       }
 
       if (routeConfig.validation) {
-        // Partial validation — only validate fields present in the body.
-        // Required-field checks are skipped for fields not included in a PATCH request.
         const partialSchema = {
           ...parsedSchema,
           fields: parsedSchema.fields
@@ -51,6 +54,21 @@ export function makePatchHandler(
         }
         const errors = validate(data, partialSchema)
         if (errors.length) return sendError(reply, 422, 'Validation failed', errors)
+
+        // Verify ObjectId ref fields point to existing documents
+        for (const field of parsedSchema.fields) {
+          if (field.type === 'objectid' && field.ref && data[field.name]) {
+            const refModel = model.db.models[field.ref]
+            if (refModel) {
+              const exists = await refModel.exists({ _id: data[field.name] })
+              if (!exists) {
+                return sendError(reply, 422, 'Validation failed', [
+                  { field: field.name, message: `${field.name} references a non-existent ${field.ref}` },
+                ])
+              }
+            }
+          }
+        }
       }
 
       const updated = await model
@@ -60,9 +78,11 @@ export function makePatchHandler(
 
       if (routeConfig.afterUpdate) await routeConfig.afterUpdate(updated as Record<string, unknown>, ctx)
 
+      const transformFn = routeConfig.transform ?? resourceConfig.transform
+      const transformed = transformFn ? transformFn(updated as Record<string, unknown>) : updated as Record<string, unknown>
       const exposed = resourceConfig.expose
-        ? (() => { const r: Record<string, unknown> = {}; const d = updated as Record<string, unknown>; for (const f of resourceConfig.expose) if (f in d) r[f] = d[f]; if (!resourceConfig.expose.includes('_id') && '_id' in d) r['_id'] = d['_id']; return r })()
-        : updated
+        ? (() => { const r: Record<string, unknown> = {}; const d = transformed; for (const f of resourceConfig.expose) if (f in d) r[f] = d[f]; if (!resourceConfig.expose.includes('_id') && '_id' in d) r['_id'] = d['_id']; return r })()
+        : transformed
       sendSuccess(reply, exposed, {}, resourceConfig.response)
     } catch (err) {
       const status  = isDisconnectedError(err) ? 503 : 500

@@ -28,11 +28,12 @@ SchemaRoute automates CRUD-heavy resources without trying to become your applica
 
 This is the first question any developer should ask before installing a library that touches their database. Here are the defaults and the controls:
 
-**By default, all schema fields are returned.** Use `expose` to whitelist exactly which fields leave the API — this is the final gate, applied after transform and populate, so nothing leaks regardless of what other pipeline stages return:
+**By default, all schema fields are returned.** Use `expose` to whitelist exactly which fields leave the API. Use `writable` to whitelist which fields clients can write:
 
 ```js
 createAPI(app, UserSchema, 'users', {
-  expose: ['name', 'email', 'role'],  // password, tokens, internal flags — never sent
+  expose:   ['name', 'email', 'role'],      // password, tokens — never sent
+  writable: ['name', 'email', 'tenantId'],  // role, createdBy — never writable by clients
 }, mongoose)
 ```
 
@@ -60,10 +61,25 @@ populate: [{ path: 'category', select: 'name slug' }]  // password never leaks t
 scope: (req) => ({ tenantId: req.headers['x-tenant-id'] })
 ```
 
-**To see exactly what SchemaRoute is doing**, enable debug logging:
+**You can pass a Mongoose Model instead of a Schema.** SchemaRoute extracts the schema and connection automatically — no 5th argument needed:
 
 ```js
-createAPI(app, ProductSchema, 'products', { debug: true }, mongoose)
+const Product = mongoose.model('Product', ProductSchema)
+createAPI(app, Product, 'products', {})  // ← no mongoose 5th arg needed
+```
+
+**To see exactly what SchemaRoute is doing**, use `inspectAPI` or enable debug logging:
+
+```js
+import { inspectAPI } from '@schemaroute/core'
+
+const instance = createAPI(app, ProductSchema, 'products', { debug: true }, mongoose)
+inspectAPI(instance)
+// GET    /products           public
+// POST   /products           middleware: [requireAuth]
+// ...
+// Exposed:  name, price, status
+// Writable: name, price, status
 ```
 
 **To escape the abstraction entirely**, use custom routes or plain controllers alongside SchemaRoute — they coexist on the same Express app. SchemaRoute is for CRUD-heavy resources. Complex domain logic belongs in your own handlers.
@@ -145,9 +161,12 @@ That's it. You now have a fully working REST API with:
 - ✅ Multitenancy via scope
 - ✅ Standard error responses
 - ✅ Expose field whitelist — DB-only fields never leak
+- ✅ Write field whitelist (`writable`) — server-controlled fields can never be set by clients
 - ✅ API versioning via prefix
 - ✅ Body size limiting per resource
 - ✅ Full request context in hooks (`ctx.req`, `ctx.user`, `ctx.headers`)
+- ✅ Pass a Mongoose Model directly — schema and connection extracted automatically
+- ✅ `inspectAPI` — print a route table to stdout, no magic
 
 ---
 
@@ -280,6 +299,7 @@ createAPI(app, ProductSchema, 'products', {
   populate:    [{ path: 'category', select: 'name slug' }],  // restrict populated fields
   exclude:     ['__v'],
   expose:      ['name', 'price', 'status', 'category'],      // whitelist — only these fields ever leave the API
+  writable:    ['name', 'price', 'stock', 'status', 'category'], // whitelist — only these fields accepted in writes
   prefix:      '/v1',                                        // all routes registered under /v1/products
   maxBodySize: '100kb',                                      // reject POST/PUT/PATCH bodies over this size
   softDelete:  true,                                         // soft delete instead of hard delete
@@ -442,6 +462,7 @@ await api.products.delete('abc123')
 | OpenAPI docs | ❌ | ❌ | ✅ |
 | TypeScript SDK | ❌ | ❌ | ✅ |
 | Expose field whitelist | ❌ | ❌ | ✅ |
+| Write field whitelist (`writable`) | ❌ | ❌ | ✅ |
 | API versioning (prefix) | ❌ | ❌ | ✅ |
 | Body size limiting | ❌ | ❌ | ✅ |
 | Zero boilerplate | ⚠️ | ❌ | ✅ |

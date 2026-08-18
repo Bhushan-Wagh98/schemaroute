@@ -15,10 +15,10 @@ import type { Request, Response } from 'express'
 import type { Model } from 'mongoose'
 import type { ParsedSchema, ResourceConfig, GetOneRouteConfig, PopulateOption } from '@schemaroute/core'
 import { isValidObjectId, toMongoosePopulate } from '@schemaroute/core'
-import { stripExcludedFields, applyTransformWithValidation, applyExposeFilter } from '../db/document'
-import { resolveSoftDeleteFields, buildSoftDeleteFilter } from '../db/soft-delete'
+import { stripExcludedFields, applyTransformWithValidation, applyExposeFilter } from '../utils/document'
+import { resolveSoftDeleteFields, buildSoftDeleteFilter } from '@schemaroute/core'
 import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
-import type { Logger } from '../logger'
+import type { Logger } from '../utils/logger'
 
 /**
  * Creates the `GET /:resource/:id` Express handler.

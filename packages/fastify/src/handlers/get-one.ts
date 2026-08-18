@@ -2,7 +2,8 @@
  * @file handlers/get-one.ts
  * @description Fastify handler for `GET /:resource/:id`.
  * Validates ObjectId, applies scope and soft-delete filter, merges
- * config-level and query-level populate, returns the document or 404.
+ * config-level and query-level populate, supports ?fields= projection,
+ * applies transform, and returns the document or 404.
  */
 
 import type { FastifyRequest, FastifyReply } from 'fastify'
@@ -36,6 +37,12 @@ export function makeGetOneHandler(
         : {}
       const findFilter  = { _id: id, ...scopeFilter, ...softDeleteFilter }
 
+      // ?fields= query param — takes precedence over routeConfig.select
+      const fieldsParam = (req.query as Record<string, string>)['fields']
+      const requestedFields = fieldsParam
+        ? fieldsParam.split(',').map(f => f.trim())
+        : null
+
       // Merge config-level populate with ?populate= query param.
       // Config entries take precedence — they may carry a select restriction
       // that the client cannot override via the query param.
@@ -50,15 +57,44 @@ export function makeGetOneHandler(
         if (!seenPaths.has(path)) { seenPaths.add(path); allPopulate.push(opt) }
       }
 
+      // When ?fields= is active, only populate ref fields that were explicitly listed
+      const fieldsToPopulate = requestedFields
+        ? allPopulate.filter(opt => requestedFields.includes(typeof opt === 'string' ? opt : opt.path))
+        : allPopulate
+
       let q = model.findOne(findFilter)
-      for (const opt of allPopulate) q = q.populate(toMongoosePopulate(opt) as any)
+
+      // Apply field projection
+      if (requestedFields) {
+        q = q.select(requestedFields.join(' '))
+      } else if (routeConfig.select?.length) {
+        q = q.select(routeConfig.select.join(' '))
+      } else if (resourceConfig.select?.length) {
+        q = q.select(resourceConfig.select.join(' '))
+      }
+
+      for (const opt of fieldsToPopulate) q = q.populate(toMongoosePopulate(opt) as any)
 
       const doc = await q.lean().exec()
       if (!doc) return sendError(reply, 404, 'Resource not found')
 
+      // Apply transform
+      const transformFn = routeConfig.transform ?? resourceConfig.transform
+      const transformed = transformFn
+        ? transformFn(doc as Record<string, unknown>)
+        : doc as Record<string, unknown>
+
+      // Apply expose whitelist as final gate
       const exposed = resourceConfig.expose
-        ? (() => { const r: Record<string, unknown> = {}; const d = doc as Record<string, unknown>; for (const f of resourceConfig.expose) if (f in d) r[f] = d[f]; if (!resourceConfig.expose.includes('_id') && '_id' in d) r['_id'] = d['_id']; return r })()
-        : doc
+        ? (() => {
+            const r: Record<string, unknown> = {}
+            const d = transformed
+            for (const f of resourceConfig.expose!) if (f in d) r[f] = d[f]
+            if (!resourceConfig.expose!.includes('_id') && '_id' in d) r['_id'] = d['_id']
+            return r
+          })()
+        : transformed
+
       sendSuccess(reply, exposed, {}, resourceConfig.response)
     } catch (err) {
       const status  = isDisconnectedError(err) ? 503 : 500

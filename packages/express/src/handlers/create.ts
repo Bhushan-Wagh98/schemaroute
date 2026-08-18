@@ -3,11 +3,12 @@
  * @description Factory for the `POST /:resource` document creation handler.
  *
  * Hook execution order:
- *   1. `beforeCreate` — runs first so computed fields (e.g. slug) are present
- *      when the validator checks required fields
- *   2. Schema validation (when `validation: true`)
- *   3. Persist to MongoDB
- *   4. `afterCreate` — receives the saved document for side-effects
+ *   1. `writable` filter  — strips fields not in the whitelist before anything else runs
+ *   2. Scope merge        — injects tenant/user fields into the body
+ *   3. `beforeCreate`     — runs before validation so computed fields (e.g. slug) are present
+ *   4. Schema validation  — when `validation: true`
+ *   5. Persist to MongoDB
+ *   6. `afterCreate`      — receives the saved document for side-effects
  */
 
 import type { Request, Response } from 'express'
@@ -16,8 +17,8 @@ import { validate } from '@schemaroute/core'
 import type { ParsedSchema, ResourceConfig, CreateRouteConfig } from '@schemaroute/core'
 import { buildRequestContext } from '../http/context'
 import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
-import { applyTransformWithValidation, applyExposeFilter } from '../db/document'
-import type { Logger } from '../logger'
+import { applyTransformWithValidation, applyExposeFilter, applyWritableFilter } from '../utils/document'
+import type { Logger } from '../utils/logger'
 
 /**
  * Creates the `POST /:resource` Express handler.
@@ -39,6 +40,11 @@ export function makeCreateHandler(
       const mongooseModel  = resolveModel()
       const requestContext = buildRequestContext(expressRequest)
       let   incomingData   = expressRequest.body as Record<string, unknown>
+
+      // Strip fields not in the writable whitelist before scope, hooks, or DB
+      if (resourceConfig.writable) {
+        incomingData = applyWritableFilter(incomingData, resourceConfig.writable)
+      }
 
       // Merge scope fields into the body so every created document is
       // automatically tagged with the current tenant/user context.

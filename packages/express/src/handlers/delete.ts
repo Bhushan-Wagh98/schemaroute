@@ -18,10 +18,10 @@ import type { Request, Response } from 'express'
 import type { Model } from 'mongoose'
 import type { ResourceConfig, DeleteRouteConfig, ParsedSchema } from '@schemaroute/core'
 import { isValidObjectId } from '@schemaroute/core'
-import { resolveSoftDeleteFields, buildSoftDeleteUpdate, buildSoftDeleteFilter } from '../db/soft-delete'
+import { resolveSoftDeleteFields, buildSoftDeleteUpdate, buildSoftDeleteFilter } from '@schemaroute/core'
 import { buildRequestContext } from '../http/context'
 import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
-import type { Logger } from '../logger'
+import type { Logger } from '../utils/logger'
 
 /** Shape of a lean Mongoose document with a guaranteed `_id` field. */
 interface LeanDocument extends Record<string, unknown> {

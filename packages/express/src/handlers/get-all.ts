@@ -9,10 +9,10 @@ import type { Request, Response } from 'express'
 import type { Model } from 'mongoose'
 import { resolveQuery, buildMeta, toMongoosePopulate } from '@schemaroute/core'
 import type { ParsedSchema, ResourceConfig, GetAllRouteConfig } from '@schemaroute/core'
-import { stripExcludedFields, applyDocumentTransform, applyTransformWithValidation, applyExposeFilter } from '../db/document'
-import { resolveSoftDeleteFields, buildSoftDeleteFilter } from '../db/soft-delete'
+import { stripExcludedFields, applyDocumentTransform, applyTransformWithValidation, applyExposeFilter } from '../utils/document'
+import { resolveSoftDeleteFields, buildSoftDeleteFilter } from '@schemaroute/core'
 import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
-import type { Logger } from '../logger'
+import type { Logger } from '../utils/logger'
 
 /**
  * Creates the `GET /:resource` Express handler.

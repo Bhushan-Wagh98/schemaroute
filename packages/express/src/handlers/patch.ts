@@ -5,10 +5,11 @@
  * fields are left unchanged in the document.
  *
  * Hook execution order:
- *   1. `beforeUpdate` — runs first so hook-injected fields are present before validation
- *   2. Schema validation (when `validation: true`) — only validates provided fields
- *   3. Persist to MongoDB via `$set`
- *   4. `afterUpdate` — receives the saved document for side-effects
+ *   1. `writable` filter  — strips fields not in the whitelist before anything else runs
+ *   2. `beforeUpdate`     — runs before validation so hook-injected fields are present
+ *   3. Schema validation  — when `validation: true`, only validates provided fields
+ *   4. Persist to MongoDB via `$set`
+ *   5. `afterUpdate`      — receives the saved document for side-effects
  */
 
 import type { Request, Response } from 'express'
@@ -18,8 +19,8 @@ import type { ParsedSchema, ResourceConfig, PatchRouteConfig } from '@schemarout
 import { isValidObjectId } from '@schemaroute/core'
 import { buildRequestContext } from '../http/context'
 import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
-import { applyTransformWithValidation, applyExposeFilter } from '../db/document'
-import type { Logger } from '../logger'
+import { applyTransformWithValidation, applyExposeFilter, applyWritableFilter } from '../utils/document'
+import type { Logger } from '../utils/logger'
 
 /**
  * Creates the `PATCH /:resource/:id` Express handler.
@@ -48,6 +49,9 @@ export function makePatchHandler(
       const requestContext = buildRequestContext(expressRequest)
 
       let incomingData = expressRequest.body as Record<string, unknown>
+      if (resourceConfig.writable) {
+        incomingData = applyWritableFilter(incomingData, resourceConfig.writable)
+      }
       if (routeConfig.beforeUpdate) {
         const hookResult = await routeConfig.beforeUpdate(incomingData, requestContext)
         if (hookResult !== undefined) {

@@ -18,6 +18,27 @@ npm install @schemaroute/core
 
 ## API
 
+### `inspectAPI(instance)`
+
+Prints a human-readable route table for a `SchemaRouteInstance` to stdout. Directly attacks the "magic" problem by making every route, middleware, and capability visible at a glance.
+
+```ts
+import { inspectAPI } from '@schemaroute/core'
+
+inspectAPI(instance)
+// [schemaroute] products
+//
+//   GET    /products                      public
+//   POST   /products                      middleware: [requireAuth]
+//   ...
+//
+//   Query:    filter ✓  sort ✓  pagination: page  search: all-fields
+//   Exposed:  name, price, status
+//   Writable: name, price, status
+```
+
+---
+
 ### `createSchemaRoute(schema, resourceName, config?)`
 
 Parses a Mongoose schema and returns a `SchemaRouteInstance` — the central object used by adapters, docs, and the SDK.
@@ -177,7 +198,8 @@ interface ResourceConfig {
   populate?:    string[]
   exclude?:     string[]
   select?:      string[]
-  expose?:      string[]          // whitelist — only these fields ever leave the API
+  expose?:      string[]          // read whitelist — only these fields ever leave the API
+  writable?:    string[]          // write whitelist — only these fields are accepted in POST/PUT/PATCH bodies
   prefix?:      string            // e.g. '/v1' — prepended to all auto-generated paths
   maxBodySize?: string | number   // e.g. '100kb' — rejects oversized POST/PUT/PATCH bodies
   scope?:       (req: any) => Record<string, unknown>

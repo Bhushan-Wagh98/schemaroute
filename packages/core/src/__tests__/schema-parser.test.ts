@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import mongoose from 'mongoose'
-import { parseSchema } from '../schema-parser'
+import { parseSchema } from '../parsing/schema-parser'
 
 const { Schema } = mongoose
 

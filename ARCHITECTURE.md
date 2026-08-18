@@ -23,7 +23,7 @@ SchemaRoute eliminates all of that.
 ## How It Works
 
 ```
-Mongoose Schema  (or Mongoose Model — planned)
+Mongoose Schema  (or Mongoose Model)
       │
       ▼
  @schemaroute/core        ← parses schema, builds normalised SchemaRouteInstance
@@ -404,7 +404,7 @@ Not supported and why:
 | `rateLimit` | `object \| array` | route | `{ max, window }` or bring your own middleware |
 | `transform` | `TransformFn` | route/resource | Reshape each document before sending |
 | `expose` | `string[]` | resource | Read whitelist — only these fields ever leave the API (applied after transform/populate) |
-| `writable` | `string[]` | resource | Write whitelist — only these fields are accepted in POST/PUT/PATCH bodies *(planned)* |
+| `writable` | `string[]` | resource | Write whitelist — only these fields are accepted in POST/PUT/PATCH bodies |
 | `prefix` | `string` | resource | URL prefix for all routes, e.g. `'/v1'` |
 | `maxBodySize` | `string \| number` | resource | Reject POST/PUT/PATCH bodies over this size |
 | `debug` | `boolean` | resource | Enable diagnostic logging |
@@ -717,9 +717,9 @@ SchemaRoute's responsibility ends at the CRUD boundary. Auth is yours.
 
 ---
 
-### inspectAPI (planned)
+### inspectAPI
 
-A planned `inspectAPI()` utility that prints a human-readable summary of what SchemaRoute has registered for a resource — directly attacking the "magic" problem:
+`inspectAPI(instance)` prints a human-readable summary of what SchemaRoute has registered for a resource — directly attacking the "magic" problem:
 
 ```
 GET    /products           public
@@ -733,7 +733,7 @@ Query:   filter ✓  sort ✓  fields ✓  pagination: page  search: all-fields
 Populate: category (select: name slug)
 
 Exposed:  name, price, status, category
-Writable: name, price, status, category  (planned)
+Writable: name, price, status, category
 ```
 
 The data is already available on `SchemaRouteInstance` — this is a formatting layer over existing internals.
@@ -781,16 +781,16 @@ The data is already available on `SchemaRouteInstance` — this is a formatting 
 - [x] `expose` field whitelist — resource-level `expose: ['name', 'price']` applied as the final gate on every response; DB-only fields (password, tokens, internal flags) can never leak regardless of transform or populate
 - [x] `maxBodySize` per resource — rejects oversized POST/PUT/PATCH bodies via Content-Length header (fast path) with a parsed-body byte-count fallback for chunked transfers; GET and DELETE unaffected
 - [x] `prefix` for API versioning — `prefix: '/v1'` prepends to all auto-generated CRUD paths; custom routes use their own full path and are unaffected
+- [x] Accept a Mongoose Model as the second argument — detects `model.schema` and `model.db`, extracts both, falls back to Schema behaviour; removes the need to pass `mongoose` as a 5th argument when a Model is provided; no breaking change
+- [x] `writable` field whitelist — resource-level `writable: ['name', 'price']` strips any fields not in the list from POST/PUT/PATCH bodies before they reach hooks or the DB; closes the read/write security symmetry gap
+- [x] `inspectAPI(instance)` utility — prints a formatted route table (method, path, middleware, exposed fields, writable fields, query capabilities) to stdout; uses existing `SchemaRouteInstance` data; no new internals needed
 
 ## Remaining
 
 ### Immediate — fixable now, no design decisions needed
 
 **API ergonomics**
-- [ ] Accept a Mongoose Model as the second argument — detect `model.schema` and `model.db`, extract both, fall back to current Schema behaviour; removes the need to pass `mongoose` as a 5th argument when a Model is provided; no breaking change
-- [ ] `writable` field whitelist — resource-level `writable: ['name', 'price']` strips any fields not in the list from POST/PUT/PATCH bodies before they reach the DB; same pattern as `expose` but for writes; closes the read/write security symmetry gap
-- [ ] `auth` shorthand — `auth: requireAuth` applies the middleware to all write routes (POST, PUT, PATCH, DELETE) without repeating it per-route; SchemaRoute still does not implement auth — it just attaches the middleware you provide; read routes remain unaffected unless explicitly configured
-- [ ] `inspectAPI(instance)` utility — prints a formatted route table (method, path, middleware, exposed fields, writable fields, query capabilities) to stdout; uses existing `SchemaRouteInstance` data; no new internals needed
+- `auth` shorthand — **intentionally not implemented**. SchemaRoute does not auto-attach middleware to routes. Middleware control stays with the user. Use a plain JS variable to share middleware without repetition: `const writeAuth = [requireAuth]; routes: { create: { middleware: writeAuth }, update: { middleware: writeAuth } }`. SchemaRoute is a library, not a framework.
 
 **Infrastructure**
 - [ ] GitHub Actions CI/CD pipeline — run tests on every PR, publish on version tag via Changesets
@@ -877,10 +877,7 @@ The data is already available on `SchemaRouteInstance` — this is a formatting 
 | **Update validation** | `validation: true` on `update` (PUT) runs full schema validation — all required fields must be present. For partial updates, use `patch` (PATCH) instead, which only validates the fields present in the body. |
 | **`object` FieldType** | Embedded sub-documents are parsed as `'object'` type. Both explicit sub-schemas and inline objects are recursed into for validation. |
 | **Koa / Hono adapters** | Only Express and Fastify are supported. Koa, Hono, and others require a custom adapter — see Future adapter guidance. |
-| **Schema-only input** | `createAPI` currently requires a Mongoose Schema + separate mongoose instance. Passing an already-constructed Mongoose Model directly is not yet supported — planned. |
-| **No `writable` field control** | `expose` controls what leaves the API. There is no equivalent `writable` option to control what fields a client can write. Fields not in a hook's `beforeCreate`/`beforeUpdate` can be written freely. Planned. |
-| **No `auth` shorthand** | There is no `auth: requireAuth` option to apply a middleware to all write routes at once. Each route must be configured individually via `routes.create.middleware`, `routes.update.middleware`, etc. Planned. |
-| **No `inspectAPI` utility** | There is no built-in way to print a human-readable summary of what SchemaRoute has registered. `instance.routes` and `instance.parsedSchema` are inspectable programmatically but there is no formatted output. Planned. |
+| **Middleware is user-controlled** | SchemaRoute does not provide an `auth` shorthand or any mechanism to auto-attach middleware to routes. Middleware is always configured explicitly per-route via `routes.create.middleware`, etc. This is intentional — SchemaRoute is a library, not a framework. Use a plain JS variable to share middleware across routes without repetition: `const writeAuth = [requireAuth]; routes: { create: { middleware: writeAuth }, update: { middleware: writeAuth } }`. |
 | **No CI/CD pipeline** | No GitHub Actions workflow exists yet. Tests and publish are run manually. |
 | **No CHANGELOG** | No `CHANGELOG.md` exists. Consumers cannot tell what changed between versions without reading raw commits. |
 | **Integration test gap** | Unit tests cover individual modules at 99% but do not cover real HTTP request/response scenarios end-to-end. The `test-api` integration tests require a live MongoDB Atlas connection and are not run in CI. |

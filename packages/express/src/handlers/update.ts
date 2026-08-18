@@ -5,11 +5,11 @@
  * runs lifecycle hooks, and returns the updated document.
  *
  * Hook execution order:
- *   1. `beforeUpdate` — runs first so hook-injected fields (e.g. updatedBy, slug)
- *      are present when the validator checks required fields
- *   2. Schema validation (when `validation: true`)
- *   3. Persist to MongoDB
- *   4. `afterUpdate` — receives the saved document for side-effects
+ *   1. `writable` filter  — strips fields not in the whitelist before anything else runs
+ *   2. `beforeUpdate`     — runs before validation so hook-injected fields are present
+ *   3. Schema validation  — when `validation: true`, all required fields must be present
+ *   4. Persist to MongoDB
+ *   5. `afterUpdate`      — receives the saved document for side-effects
  */
 
 import type { Request, Response } from 'express'
@@ -19,8 +19,8 @@ import type { ParsedSchema, ResourceConfig, UpdateRouteConfig } from '@schemarou
 import { isValidObjectId } from '@schemaroute/core'
 import { buildRequestContext } from '../http/context'
 import { sendSuccessResponse, sendErrorResponse, isDisconnectedError } from '../http/response'
-import { applyTransformWithValidation, applyExposeFilter } from '../db/document'
-import type { Logger } from '../logger'
+import { applyTransformWithValidation, applyExposeFilter, applyWritableFilter } from '../utils/document'
+import type { Logger } from '../utils/logger'
 
 /**
  * Creates the `PUT /:resource/:id` Express handler.
@@ -49,6 +49,9 @@ export function makeUpdateHandler(
       const requestContext = buildRequestContext(expressRequest)
 
       let incomingData = expressRequest.body as Record<string, unknown>
+      if (resourceConfig.writable) {
+        incomingData = applyWritableFilter(incomingData, resourceConfig.writable)
+      }
       if (routeConfig.beforeUpdate) {
         // beforeUpdate runs before validation so hook-injected fields are present
         // when required-field checks run. The hook must return the (modified) data —
@@ -71,7 +74,6 @@ export function makeUpdateHandler(
         }
 
         // Verify that all ObjectId ref fields point to existing documents
-        const mongooseModel = resolveModel()
         for (const field of parsedSchema.fields) {
           if (field.type === 'objectid' && field.ref && incomingData[field.name]) {
             const refModel = mongooseModel.db.models[field.ref]

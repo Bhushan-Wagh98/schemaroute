@@ -90,10 +90,12 @@ export function makeGetAllHandler(
           : undefined
       }
 
-      // expose whitelist — applied last, after any transform
+      // Apply transform then expose whitelist — transform first, expose is the final gate
+      const transformFn = routeConfig.transform ?? resourceConfig.transform
+      const transformed = transformFn ? results.map(d => transformFn(d)) : results
       const finalResults = resourceConfig.expose
-        ? results.map(d => { const r: Record<string, unknown> = {}; for (const f of resourceConfig.expose!) if (f in d) r[f] = d[f]; if (!resourceConfig.expose!.includes('_id') && '_id' in d) r['_id'] = d['_id']; return r })
-        : results
+        ? transformed.map(d => { const r: Record<string, unknown> = {}; for (const f of resourceConfig.expose!) if (f in d) r[f] = d[f]; if (!resourceConfig.expose!.includes('_id') && '_id' in d) r['_id'] = d['_id']; return r })
+        : transformed
 
       sendSuccess(reply, finalResults, buildMeta(resolvedQuery.pagination, total, nextCursor), resourceConfig.response)
     } catch (err) {
