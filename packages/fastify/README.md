@@ -18,7 +18,7 @@ npm install @schemaroute/core @schemaroute/fastify
 
 ## How the DB connection works
 
-SchemaRoute **does not connect to MongoDB**. You connect, then pass your mongoose instance to `createAPI`.
+SchemaRoute **does not connect to MongoDB**. You connect, then pass your mongoose instance to `createAPI`. This ensures SchemaRoute uses the same connection you opened.
 
 ```js
 // ✅ correct
@@ -70,6 +70,45 @@ DELETE /products/:id
 
 ---
 
+## What is actually exposed?
+
+**By default, all schema fields are returned.** Use `expose` to whitelist exactly which fields leave the API — applied after transform and populate, so nothing leaks regardless of what other pipeline stages return:
+
+```js
+createAPI(app, UserSchema, 'users', {
+  expose: ['name', 'email', 'role'],  // password, tokens, internal flags — never sent
+}, mongoose)
+```
+
+**By default, all routes are open.** Add middleware for auth:
+
+```js
+routes: {
+  create: { middleware: [requireAuth] },
+  delete: { middleware: [requireAuth, requireAdmin] },
+}
+```
+
+**Population is controlled server-side.** Restrict which fields come back from populated documents:
+
+```js
+populate: [{ path: 'category', select: 'name slug' }]  // sensitive fields never leak through populate
+```
+
+**Multitenancy via scope.** Every query and write is automatically scoped — cross-tenant reads return `404`:
+
+```js
+scope: (req) => ({ tenantId: req.headers['x-tenant-id'] })
+```
+
+**To see what SchemaRoute is doing**, enable debug logging:
+
+```js
+createAPI(app, ProductSchema, 'products', { debug: true }, mongoose)
+```
+
+---
+
 ## `createAPI(app, schema, resourceName, config?, mongoose?)`
 
 | Param | Type | Description |
@@ -86,6 +125,8 @@ Returns a `SchemaRouteInstance` — pass it to `@schemaroute/docs` or `@schemaro
 
 ## Full Config Example
 
+All options are optional. Start with zero config and add only what you need.
+
 ```js
 createAPI(app, ProductSchema, 'products', {
 
@@ -98,7 +139,7 @@ createAPI(app, ProductSchema, 'products', {
   prefix:      '/v1',          // all routes registered under /v1/products
   maxBodySize: '100kb',        // reject POST/PUT/PATCH bodies over this size
   softDelete:  true,           // DELETE sets deletedAt/isDeleted instead of removing
-  scope:       (req) => ({ tenantId: req.headers['x-tenant-id'] }),  // multitenancy
+  scope:       (req) => ({ tenantId: req.headers['x-tenant-id'] }),
   transform:   (doc) => ({ id: doc._id, ...doc }),
   debug:       false,
 
@@ -189,21 +230,7 @@ All hooks receive `(data/doc, ctx)` where `ctx` contains `ctx.user`, `ctx.req`, 
 | `beforeDelete(doc, ctx)` | before delete | ❌ side effects only |
 | `afterDelete(doc, ctx)` | after delete | ❌ side effects only |
 
----
-
-## Querying
-
-Every `GET /resource` endpoint supports:
-
-| Param | Example | Description |
-|---|---|---|
-| Field filter | `?status=active` | Filter by any schema field |
-| `sort` | `?sort=price&order=desc` | Sort by field |
-| `fields` | `?fields=name,price` | Select specific fields — works on both `getAll` and `getOne` |
-| `search` | `?search=laptop` | Full-text search across string fields |
-| `page` | `?page=2&limit=10` | Page-based pagination |
-| `cursor` | `?cursor=<id>&limit=10` | Cursor-based pagination |
-| `populate` | `?populate=category` | Populate ref fields |
+`beforeCreate` runs **before** validation so computed fields (e.g. auto-generated slugs) are present when required-field checks run.
 
 ---
 
@@ -227,7 +254,38 @@ createAPI(app, PostSchema, 'posts', {
 }, mongoose)
 ```
 
-The scope function result is merged into every query filter and every create/update body — restricts all operations to the current tenant without repeating the filter in every hook.
+The scope result is merged into every query filter and every create/update body. Cross-tenant reads and writes return `404` — not `403` — so other tenants' existence is not revealed.
+
+---
+
+## Querying
+
+Every `GET /resource` endpoint supports:
+
+| Param | Example | Description |
+|---|---|---|
+| Field filter | `?status=active` | Filter by any schema field |
+| `sort` | `?sort=price&order=desc` | Sort by field |
+| `fields` | `?fields=name,price` | Select specific fields — works on both `getAll` and `getOne` |
+| `search` | `?search=laptop` | Full-text search across string fields |
+| `page` | `?page=2&limit=10` | Page-based pagination |
+| `cursor` | `?cursor=<id>&limit=10` | Cursor-based pagination |
+| `populate` | `?populate=category` | Populate ref fields |
+
+---
+
+## Error Responses
+
+| Status | Cause |
+|---|---|
+| `400` | Invalid MongoDB ObjectId format in URL param |
+| `400` | Malformed JSON request body |
+| `400` | Invalid query param — unknown sort field, unknown `?fields=` field, invalid enum filter, bad page/limit |
+| `404` | Document not found |
+| `413` | Request body exceeds `maxBodySize` |
+| `422` | Validation failed — required field missing, type error, constraint violation, invalid ObjectId in body, ref points to non-existent document |
+| `429` | Rate limit exceeded |
+| `500` | Internal server error |
 
 ---
 

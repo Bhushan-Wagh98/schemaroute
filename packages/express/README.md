@@ -59,6 +59,8 @@ You must call createAPI inside the .then() callback of mongoose.connect(), after
 
 ---
 
+## Quick Start
+
 ```js
 import express  from 'express'
 import mongoose from 'mongoose'
@@ -90,6 +92,45 @@ POST   /products
 PUT    /products/:id
 PATCH  /products/:id
 DELETE /products/:id
+```
+
+---
+
+## What is actually exposed?
+
+**By default, all schema fields are returned.** Use `expose` to whitelist exactly which fields leave the API — applied after transform and populate, so nothing leaks regardless of what other pipeline stages return:
+
+```js
+createAPI(app, UserSchema, 'users', {
+  expose: ['name', 'email', 'role'],  // password, tokens, internal flags — never sent
+}, mongoose)
+```
+
+**By default, all routes are open.** Add middleware for auth:
+
+```js
+routes: {
+  create: { middleware: [requireAuth] },
+  delete: { middleware: [requireAuth, requireAdmin] },
+}
+```
+
+**Population is controlled server-side.** Restrict which fields come back from populated documents:
+
+```js
+populate: [{ path: 'category', select: 'name slug' }]  // sensitive fields never leak through populate
+```
+
+**Multitenancy via scope.** Every query and write is automatically scoped — cross-tenant reads return `404`:
+
+```js
+scope: (req) => ({ tenantId: req.headers['x-tenant-id'] })
+```
+
+**To see what SchemaRoute is doing**, enable debug logging:
+
+```js
+createAPI(app, ProductSchema, 'products', { debug: true }, mongoose)
 ```
 
 ---
@@ -143,6 +184,8 @@ Safe to call multiple times — registers only once per app instance.
 
 ## Full Config Example
 
+All options are optional. Start with zero config and add only what you need.
+
 ```js
 createAPI(app, ProductSchema, 'products', {
 
@@ -154,6 +197,8 @@ createAPI(app, ProductSchema, 'products', {
   expose:      ['name', 'price', 'stock', 'status', 'category'],  // whitelist — only these fields ever leave the API
   prefix:      '/v1',          // all routes registered under /v1/products
   maxBodySize: '100kb',        // reject POST/PUT/PATCH bodies over this size
+  softDelete:  true,           // DELETE sets deletedAt/isDeleted instead of removing
+  scope:       (req) => ({ tenantId: req.headers['x-tenant-id'] }),
   transform:   (doc) => ({ id: doc._id, ...doc }),
   debug:       false,
 
@@ -203,6 +248,11 @@ createAPI(app, ProductSchema, 'products', {
       afterUpdate: async (doc) => {
         await invalidateCache(doc._id)
       },
+    },
+
+    patch: {
+      enabled:    true,
+      middleware: [requireAuth],
     },
 
     delete: {
@@ -256,7 +306,7 @@ createAPI(app, ProductSchema, 'products', {
 | `rateLimit` | `object \| array` | — | Built-in limiter or your own middleware |
 | `sort` | `boolean` | `false` | Allow `?sort=field&order=asc\|desc` (getAll only) |
 | `fields` | `boolean` | `false` | Allow `?fields=name,price` field selection (getAll only) |
-| `populate` | `string[]` | — | Ref fields to populate |
+| `populate` | `PopulateOption[]` | — | Ref fields to populate |
 | `exclude` | `string[]` | — | Fields to strip from the response |
 | `select` | `string[]` | — | Fields to include in the response |
 | `transform` | `TransformFn` | — | Reshape each document before sending |
@@ -293,6 +343,40 @@ Hook execution order for `create`:
 2. Schema validation (when `validation: true`)
 3. Persist to MongoDB
 4. `afterCreate` — receives the saved document for side-effects
+
+---
+
+## Soft Delete
+
+```js
+createAPI(app, ProductSchema, 'products', {
+  softDelete: true,  // or: { field: 'archivedAt', flagField: 'archived' }
+}, mongoose)
+```
+
+`DELETE /:id` sets `deletedAt` + `isDeleted` instead of removing the document. All reads automatically exclude soft-deleted documents. Restore via `PATCH`: `{ isDeleted: false, deletedAt: null }`.
+
+The fields must exist on the schema:
+
+```js
+const ProductSchema = new Schema({
+  name:      String,
+  deletedAt: { type: Date,    default: null },
+  isDeleted: { type: Boolean, default: false },
+})
+```
+
+---
+
+## Scope (Multitenancy)
+
+```js
+createAPI(app, PostSchema, 'posts', {
+  scope: (req) => ({ tenantId: req.headers['x-tenant-id'] }),
+}, mongoose)
+```
+
+The scope result is merged into every query filter and every create/update body. Cross-tenant reads and writes return `404` — not `403` — so other tenants' existence is not revealed.
 
 ---
 
@@ -383,6 +467,7 @@ Field filter values are automatically coerced to their schema type — `?price=9
 | `400` | Malformed JSON request body |
 | `400` | Invalid query param — unknown sort field, unknown `?fields=` field, invalid enum filter value, `page < 1`, non-numeric/non-positive `limit` |
 | `404` | Document not found |
+| `413` | Request body exceeds `maxBodySize` |
 | `422` | Validation failed — required field missing, type error, constraint violation, invalid ObjectId in body, ref points to non-existent document |
 | `429` | Rate limit exceeded |
 | `500` | Internal server error |

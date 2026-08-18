@@ -6,6 +6,8 @@ Auto-generated TypeScript client SDK for SchemaRoute APIs. Get a fully typed HTT
 
 Uses native `fetch` — no extra HTTP dependencies.
 
+> The SDK is a client-side convenience layer. It does not bypass any server-side security — `expose`, `scope`, middleware, and validation all apply normally to every request the SDK makes.
+
 ---
 
 ## Install
@@ -219,6 +221,15 @@ type MyAPI = SchemaRouteSDK<{
   categories: { name: string; slug: string }
 }>
 ```
+
+---
+
+## Links
+
+- [GitHub](https://github.com/Bhushan-Wagh98/schemaroute)
+- [@schemaroute/express](https://www.npmjs.com/package/@schemaroute/express)
+- [@schemaroute/fastify](https://www.npmjs.com/package/@schemaroute/fastify)
+- [@schemaroute/docs](https://www.npmjs.com/package/@schemaroute/docs)
 
 ---
 

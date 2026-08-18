@@ -5,10 +5,10 @@
 [![tests](https://img.shields.io/badge/tests-306%20passing-brightgreen)](#testing)
 [![coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)](#testing)
 
-Auto-generate a fully working CRUD API from a Mongoose schema. No boilerplate. No repetition. Just define your schema and get routes, validation, filtering, pagination, search, population, hooks, docs, and a TypeScript SDK — all in one call.
+Auto-generate a fully working CRUD API from a Mongoose schema. No boilerplate. No repetition.
 
 ```js
-createAPI(app, UserSchema, 'users')
+createAPI(app, UserSchema, 'users', {}, mongoose)
 
 // GET    /users
 // GET    /users/:id
@@ -20,15 +20,49 @@ createAPI(app, UserSchema, 'users')
 
 ---
 
-## The Problem
+## What is actually exposed?
 
-Every Node.js developer repeats the same steps for every resource:
+This is the first question any developer should ask before installing a library that touches their database. Here are the defaults and the controls:
 
+**By default, all schema fields are returned.** Use `expose` to whitelist exactly which fields leave the API — this is the final gate, applied after transform and populate, so nothing leaks regardless of what other pipeline stages return:
+
+```js
+createAPI(app, UserSchema, 'users', {
+  expose: ['name', 'email', 'role'],  // password, tokens, internal flags — never sent
+}, mongoose)
 ```
-schema → model → controller → routes → validation → middleware → docs → SDK
+
+**By default, all routes are open.** Add middleware for auth:
+
+```js
+routes: {
+  create: { middleware: [requireAuth] },
+  update: { middleware: [requireAuth] },
+  delete: { middleware: [requireAuth, requireAdmin] },
+}
 ```
 
-SchemaRoute eliminates all of that.
+**By default, any schema field can be filtered.** Enum fields are validated — `?status=badvalue` returns `400`. Non-schema fields are ignored. Type coercion is automatic — `?price=99` produces `{ price: 99 }` (number), not a string.
+
+**Population is controlled server-side.** A client sending `?populate=category` only works if the field is a Mongoose ref. You can restrict which fields come back from the populated document:
+
+```js
+populate: [{ path: 'category', select: 'name slug' }]  // password never leaks through populate
+```
+
+**Multitenancy via scope.** Every query, create, update, patch, and delete is automatically scoped — cross-tenant reads return `404`, not `403`, so other tenants' existence is not revealed:
+
+```js
+scope: (req) => ({ tenantId: req.headers['x-tenant-id'] })
+```
+
+**To see exactly what SchemaRoute is doing**, enable debug logging:
+
+```js
+createAPI(app, ProductSchema, 'products', { debug: true }, mongoose)
+```
+
+**To escape the abstraction entirely**, use custom routes or plain controllers alongside SchemaRoute — they coexist on the same Express app. SchemaRoute is for CRUD-heavy resources. Complex domain logic belongs in your own handlers.
 
 ---
 
@@ -48,18 +82,25 @@ npm install @schemaroute/sdk    # TypeScript client SDK
 
 ## How the DB connection works
 
-SchemaRoute does not connect to MongoDB. You connect, then pass your mongoose instance to `createAPI`:
+SchemaRoute does not connect to MongoDB. You connect, then pass your mongoose instance to `createAPI`. This ensures SchemaRoute uses the same connection you opened — important when using Atlas or a custom connection string.
 
 ```js
-// ✅ correct
+// ✅ correct — createAPI called after connect resolves, mongoose instance passed
 mongoose.connect(process.env.MONGO_URI).then(() => {
-  createAPI(app, ProductSchema, 'products', {}, mongoose)  // ← pass mongoose
+  createAPI(app, ProductSchema, 'products', {}, mongoose)
   app.listen(3000)
 })
 
-// ❌ wrong — throws a clear error
+// ❌ wrong — throws a clear error before any routes are registered
 createAPI(app, ProductSchema, 'products', {}, mongoose)
 mongoose.connect(process.env.MONGO_URI)  // too late
+```
+
+If you call `createAPI` before connecting, you get an immediate error — not a silent failure:
+
+```
+[schemaroute] createAPI('products') was called while mongoose connection is "disconnected".
+You must call createAPI inside the .then() callback of mongoose.connect().
 ```
 
 ---
@@ -103,6 +144,18 @@ That's it. You now have a fully working REST API with:
 - ✅ API versioning via prefix
 - ✅ Body size limiting per resource
 - ✅ Full request context in hooks (`ctx.req`, `ctx.user`, `ctx.headers`)
+
+---
+
+## The Problem
+
+Every Node.js developer repeats the same steps for every resource:
+
+```
+schema → model → controller → routes → validation → middleware → docs → SDK
+```
+
+SchemaRoute eliminates all of that. And unlike AI-generated boilerplate, it stays consistent across every resource, stays maintained as a dependency, and gives you filtering, pagination, search, population, soft delete, and OpenAPI docs without writing or maintaining any of it.
 
 ---
 
@@ -155,6 +208,8 @@ Every `GET /resource` endpoint supports:
 
 ## Full Config Example
 
+All options are optional. Start with zero config and add only what you need.
+
 ```js
 createAPI(app, ProductSchema, 'products', {
 
@@ -168,8 +223,8 @@ createAPI(app, ProductSchema, 'products', {
   maxBodySize: '100kb',                                      // reject POST/PUT/PATCH bodies over this size
   softDelete:  true,                                         // soft delete instead of hard delete
   scope:       (req) => ({ tenantId: req.headers['x-tenant-id'] }),  // multitenancy
-  transform:   (doc) => ({ id: doc._id, ...doc }),  // reshape every response doc
-  debug:       false,  // set true to enable diagnostic logging
+  transform:   (doc) => ({ id: doc._id, ...doc }),           // reshape every response doc
+  debug:       false,                                        // set true to enable diagnostic logging
 
   routes: {
     getAll: {
@@ -256,7 +311,7 @@ Route config (per route)   ← most specific, always wins
 ```js
 import { generateOpenAPISpec, mountSwaggerUI } from '@schemaroute/docs'
 
-const productsInstance  = createAPI(app, ProductSchema,  'products',  {}, mongoose)
+const productsInstance   = createAPI(app, ProductSchema,  'products',  {}, mongoose)
 const categoriesInstance = createAPI(app, CategorySchema, 'categories', {}, mongoose)
 
 const spec = generateOpenAPISpec([productsInstance, categoriesInstance], {
@@ -295,6 +350,7 @@ await api.products.delete('abc123')
 | [`schemaroute`](https://www.npmjs.com/package/schemaroute) | [![npm](https://img.shields.io/npm/v/schemaroute)](https://www.npmjs.com/package/schemaroute) | Umbrella — installs everything |
 | [`@schemaroute/core`](./packages/core) | [![npm](https://img.shields.io/npm/v/@schemaroute/core)](https://www.npmjs.com/package/@schemaroute/core) | Framework-agnostic core |
 | [`@schemaroute/express`](./packages/express) | [![npm](https://img.shields.io/npm/v/@schemaroute/express)](https://www.npmjs.com/package/@schemaroute/express) | Express adapter |
+| [`@schemaroute/fastify`](./packages/fastify) | [![npm](https://img.shields.io/npm/v/@schemaroute/fastify)](https://www.npmjs.com/package/@schemaroute/fastify) | Fastify adapter |
 | [`@schemaroute/docs`](./packages/docs) | [![npm](https://img.shields.io/npm/v/@schemaroute/docs)](https://www.npmjs.com/package/@schemaroute/docs) | OpenAPI 3.0 + Swagger UI |
 | [`@schemaroute/sdk`](./packages/sdk) | [![npm](https://img.shields.io/npm/v/@schemaroute/sdk)](https://www.npmjs.com/package/@schemaroute/sdk) | TypeScript client SDK |
 | [`@schemaroute/common`](./packages/common) | [![npm](https://img.shields.io/npm/v/@schemaroute/common)](https://www.npmjs.com/package/@schemaroute/common) | Shared types — zero runtime deps |
@@ -315,6 +371,8 @@ await api.products.delete('abc123')
 | Population | ❌ | ❌ | ✅ |
 | Populate field selection | ❌ | ❌ | ✅ |
 | Partial updates (PATCH) | ❌ | ❌ | ✅ |
+| Soft delete | ❌ | ❌ | ✅ |
+| Multitenancy / scope | ❌ | ❌ | ✅ |
 | Lifecycle hooks + full ctx | ❌ | ❌ | ✅ |
 | Custom routes | ❌ | ✅ | ✅ |
 | Response shape | ❌ | ❌ | ✅ |
@@ -337,6 +395,7 @@ schemaroute-lib/
 ├── packages/
 │   ├── core/           ← framework-agnostic core
 │   ├── express/        ← Express adapter
+│   ├── fastify/        ← Fastify adapter
 │   ├── docs/           ← OpenAPI + Swagger UI
 │   ├── sdk/            ← TypeScript client SDK
 │   ├── common/         ← shared types (zero runtime deps)

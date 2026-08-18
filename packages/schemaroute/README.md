@@ -3,10 +3,10 @@
 [![npm](https://img.shields.io/npm/v/schemaroute)](https://www.npmjs.com/package/schemaroute)
 [![license](https://img.shields.io/npm/l/schemaroute)](https://github.com/Bhushan-Wagh98/schemaroute/blob/main/LICENSE)
 
-Auto-generate a fully working CRUD API from a Mongoose schema. No boilerplate. No repetition. Just define your schema and get routes, validation, filtering, pagination, search, population, hooks, OpenAPI docs, and a TypeScript SDK — all in one call.
+Auto-generate a fully working CRUD API from a Mongoose schema. No boilerplate. No repetition.
 
 ```js
-createAPI(app, UserSchema, 'users')
+createAPI(app, UserSchema, 'users', {}, mongoose)
 
 // GET    /users
 // GET    /users/:id
@@ -15,6 +15,47 @@ createAPI(app, UserSchema, 'users')
 // PATCH  /users/:id
 // DELETE /users/:id
 ```
+
+---
+
+## What is actually exposed?
+
+**By default, all schema fields are returned.** Use `expose` to whitelist exactly which fields leave the API — applied after transform and populate, so nothing leaks regardless of what other pipeline stages return:
+
+```js
+createAPI(app, UserSchema, 'users', {
+  expose: ['name', 'email', 'role'],  // password, tokens, internal flags — never sent
+}, mongoose)
+```
+
+**By default, all routes are open.** Add middleware for auth:
+
+```js
+routes: {
+  create: { middleware: [requireAuth] },
+  delete: { middleware: [requireAuth, requireAdmin] },
+}
+```
+
+**Population is controlled server-side.** Restrict which fields come back from populated documents:
+
+```js
+populate: [{ path: 'category', select: 'name slug' }]  // sensitive fields never leak through populate
+```
+
+**Multitenancy via scope.** Every query and write is automatically scoped — cross-tenant reads return `404`:
+
+```js
+scope: (req) => ({ tenantId: req.headers['x-tenant-id'] })
+```
+
+**To see what SchemaRoute is doing**, enable debug logging:
+
+```js
+createAPI(app, ProductSchema, 'products', { debug: true }, mongoose)
+```
+
+**To escape the abstraction**, use custom routes or plain controllers alongside SchemaRoute — they coexist on the same app. SchemaRoute is for CRUD-heavy resources. Complex domain logic belongs in your own handlers.
 
 ---
 
@@ -34,6 +75,24 @@ This single package includes everything:
 | `@schemaroute/fastify` | Fastify adapter — full feature parity with Express adapter |
 | `@schemaroute/docs` | OpenAPI 3.0 spec generator + Swagger UI |
 | `@schemaroute/sdk` | Auto-generated TypeScript client SDK |
+
+---
+
+## How the DB connection works
+
+SchemaRoute does not connect to MongoDB. You connect, then pass your mongoose instance to `createAPI`. This ensures SchemaRoute uses the same connection you opened.
+
+```js
+// ✅ correct — createAPI called after connect resolves, mongoose instance passed
+mongoose.connect(process.env.MONGO_URI).then(() => {
+  createAPI(app, ProductSchema, 'products', {}, mongoose)
+  app.listen(3000)
+})
+
+// ❌ wrong — throws a clear error before any routes are registered
+createAPI(app, ProductSchema, 'products', {}, mongoose)
+mongoose.connect(process.env.MONGO_URI)  // too late
+```
 
 ---
 
@@ -71,7 +130,7 @@ Every `GET /resource` endpoint supports:
 
 | Query Param | Example | Description |
 |---|---|---|
-| Field filter | `?status=active&category=abc` | Filter by any schema field |
+| Field filter | `?status=active&category=abc` | Filter by any schema field. Returns `400` if value is not a valid enum member |
 | Sort | `?sort=price&order=desc` | Sort by any field |
 | Fields | `?fields=name,price,stock` | Select specific fields — works on both `getAll` and `getOne` |
 | Search | `?search=laptop` | Search across all string fields |
@@ -112,6 +171,8 @@ Every `GET /resource` endpoint supports:
 
 ## Full Config Example
 
+All options are optional. Start with zero config and add only what you need.
+
 ```js
 import { createAPI } from 'schemaroute'
 
@@ -125,6 +186,8 @@ createAPI(app, ProductSchema, 'products', {
   expose:      ['name', 'price', 'status', 'category'],  // whitelist — only these fields ever leave the API
   prefix:      '/v1',          // all routes registered under /v1/products
   maxBodySize: '100kb',        // reject POST/PUT/PATCH bodies over this size
+  softDelete:  true,           // DELETE sets deletedAt/isDeleted instead of removing
+  scope:       (req) => ({ tenantId: req.headers['x-tenant-id'] }),
   transform:   (doc) => ({ id: doc._id, ...doc }),
   debug:       false,
 
@@ -218,9 +281,6 @@ const spec = generateOpenAPISpec([productsInstance, categoriesInstance], {
 mountSwaggerUI(app, spec)
 // → Swagger UI at http://localhost:3000/api-docs
 
-// custom path
-mountSwaggerUI(app, spec, '/docs')
-
 // serve raw spec for Postman / Redoc
 app.get('/openapi.json', (req, res) => res.json(spec))
 ```
@@ -277,8 +337,10 @@ rateLimit: [expressRateLimit({ windowMs: 60_000, max: 100 })]
 |---|---|
 | `400` | Invalid MongoDB ObjectId |
 | `400` | Malformed JSON body |
+| `400` | Invalid query param — unknown sort field, unknown `?fields=` field, invalid enum filter, bad page/limit |
 | `404` | Document not found |
-| `422` | Validation failed |
+| `413` | Request body exceeds `maxBodySize` |
+| `422` | Validation failed — required field missing, type error, constraint violation, invalid ObjectId in body, ref points to non-existent document |
 | `429` | Rate limit exceeded |
 | `500` | Internal server error |
 

@@ -4,6 +4,8 @@
 
 OpenAPI 3.0 spec generator and Swagger UI for SchemaRoute. Auto-generates interactive API documentation from your registered resources — no manual spec writing required.
 
+The spec reflects your actual config: `expose` whitelists, disabled routes, custom routes, query params, and response shapes are all included automatically.
+
 ---
 
 ## Install
@@ -172,7 +174,10 @@ All responses are documented with the standard SchemaRoute envelope:
 | `400` | Bad request / invalid id |
 | `404` | Not found |
 | `422` | Validation failed |
+| `429` | Rate limit exceeded |
 | `500` | Internal server error |
+
+> `413` (body too large) is not currently included in the generated spec. If you use `maxBodySize`, document it manually in the `description` field.
 
 ---
 
@@ -191,6 +196,15 @@ app.get('/openapi.json', (req, res) => res.json(spec))
 ```ts
 import type { DocsOptions, OpenAPISpec } from '@schemaroute/docs'
 ```
+
+---
+
+## Links
+
+- [GitHub](https://github.com/Bhushan-Wagh98/schemaroute)
+- [@schemaroute/express](https://www.npmjs.com/package/@schemaroute/express)
+- [@schemaroute/fastify](https://www.npmjs.com/package/@schemaroute/fastify)
+- [@schemaroute/sdk](https://www.npmjs.com/package/@schemaroute/sdk)
 
 ---
 

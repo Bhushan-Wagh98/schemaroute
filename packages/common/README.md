@@ -98,6 +98,7 @@ import type {
 - [GitHub](https://github.com/Bhushan-Wagh98/schemaroute)
 - [@schemaroute/core](https://www.npmjs.com/package/@schemaroute/core)
 - [@schemaroute/express](https://www.npmjs.com/package/@schemaroute/express)
+- [@schemaroute/fastify](https://www.npmjs.com/package/@schemaroute/fastify)
 - [@schemaroute/docs](https://www.npmjs.com/package/@schemaroute/docs)
 - [@schemaroute/sdk](https://www.npmjs.com/package/@schemaroute/sdk)
 

@@ -637,38 +637,49 @@ Without the generic, all methods return `Record<string, unknown>`.
 
 ## Remaining
 
-**Infrastructure (blocks everything else)**
+### Immediate — fixable now, no design decisions needed
+
+**Infrastructure**
 - [ ] GitHub Actions CI/CD pipeline — run tests on every PR, publish on version tag via Changesets
 - [ ] `CHANGELOG.md` — consumers cannot tell what changed between versions without reading raw commits
 - [ ] Integration test suite — unit tests cover modules at 99% but no real HTTP end-to-end coverage; needs `mongodb-memory-server` so CI runs without external deps
 - [ ] `npm pkg fix` — normalise `repository.url` in all `package.json` files (noisy on every publish)
 
-**API Features (user-facing, high impact)**
+**Docs**
+- [ ] Documentation site — Docusaurus or VitePress with getting-started guide, full config reference, migration guide, and live examples; searchable navigable docs are critical for library adoption
+- [ ] `413` status code in generated OpenAPI spec — `maxBodySize` rejections are not currently documented in the spec; add when `maxBodySize` is set on the resource config
+
+**Observability**
+- [ ] Request ID / tracing — read `x-request-id` from request (or generate one), attach to hook `ctx`, include in every error response and debug log line; without this a failed request in production cannot be correlated back to a specific operation
+- [ ] Structured log output — `debug: true` currently writes unstructured `console.log` output; production observability requires structured JSON logs with consistent fields (`requestId`, `resourceName`, `operation`, `durationMs`) that can be ingested by log aggregators (Datadog, CloudWatch, etc.)
+
+**API — small surface, high value**
 - [ ] Built-in health endpoint — `health: true` in `createAPI` auto-registers `GET /health`; needed for k8s liveness/readiness probes
-- [ ] Bulk operations — `POST /resource/bulk` and `DELETE /resource/bulk` with hooks and scope support
-- [ ] Transaction support — `ctx.session` passed to every hook so multi-step writes (e.g. `beforeCreate` hashes password + `afterCreate` creates related record) can be wrapped in a Mongoose session; without this, hook sequences have no atomicity guarantee and a failure mid-chain leaves the DB in a partial state
+- [ ] SDK retry logic — `{ retries: 3, backoff: 'exponential', timeout: 5000 }` option; retry on transient errors (503, network timeout), not on client errors (400, 422)
+
+---
+
+### Longer term — require design decisions or significant scope
+
+**API Features**
 - [ ] Input schema decoupling — `inputSchema` option per route to define validation and filtering independently of the Mongoose schema; today the API contract is structurally coupled to the DB shape, which breaks down when the two need to diverge as the system evolves
+- [ ] Bulk operations — `POST /resource/bulk` and `DELETE /resource/bulk` with hooks and scope support
+- [ ] Transaction support — `ctx.session` passed to every hook so multi-step writes can be wrapped in a Mongoose session; without this, hook sequences have no atomicity guarantee and a failure mid-chain leaves the DB in a partial state
+- [ ] Response caching hooks — `afterGetAll` / `afterGetOne` hooks for cache population; `cacheKey` option so SchemaRoute can check cache before hitting MongoDB
+- [ ] File upload support — `upload` option per route; multer-compatible; files available in hooks via request context
+- [ ] Response compression — `compression: true` option at resource or global level; applies to read routes only
 
 **Reliability**
 - [ ] Connection circuit breaker — open on repeated failures, half-open on recovery; prevents thundering-herd reconnect storms
 - [ ] Distributed rate limiting — built-in Redis-backed option; current in-memory limiter is per-instance so effective limit is `max × instances`
 
-**SDK**
-- [ ] SDK retry logic — `{ retries: 3, backoff: 'exponential', timeout: 5000 }` option; retry on transient errors (503, network timeout), not on client errors (400, 422)
-
-**Observability**
-- [ ] Request ID / tracing — read `x-request-id` from request (or generate one), attach to hook `ctx`, include in every error response and debug log line; without this a failed request in production cannot be correlated back to a specific operation across multiple log lines or service instances
-- [ ] Structured log output — `debug: true` currently writes unstructured console output; production observability requires structured JSON logs with consistent fields (requestId, resourceName, operation, durationMs) that can be ingested by log aggregators (Datadog, CloudWatch, etc.)
-- [ ] Response caching hooks — `afterGetAll` / `afterGetOne` hooks for cache population; `cacheKey` option so SchemaRoute can check cache before hitting MongoDB
-
 **Extensibility**
 - [ ] Global event system — `schemaroute.on('create', auditLog)` to subscribe to events across all resources from one place
 - [ ] Plugin system — `use(plugin)` API for third-party packages to hook into the request lifecycle or extend config
-- [ ] File upload support — `upload` option per route; multer-compatible; files available in hooks via request context
-- [ ] Response compression — `compression: true` option at resource or global level; applies to read routes only
 
-**Documentation**
-- [ ] Documentation site — Docusaurus or VitePress with getting-started guide, full config reference, migration guide, and live examples
+**Framework adapters**
+- [ ] `@schemaroute/koa` — Koa adapter; see Future adapter guidance section for implementation steps
+- [ ] `@schemaroute/hono` — Hono adapter; lightweight, edge-compatible
 
 ---
 
@@ -711,32 +722,20 @@ Without the generic, all methods return `Record<string, unknown>`.
 | **`MiddlewareFn` uses `any`** | Intentional — keeps `@schemaroute/common` framework-agnostic without importing Express types. Adapters cast to `RequestHandler` at the boundary. |
 | **Mongoose fallback** | If `mongoose` is not passed as the 5th argument, `createAPI` falls back to `require('mongoose')`. This may be a different instance than the one you connected with. Always pass your instance explicitly. |
 | **Update validation** | `validation: true` on `update` (PUT) runs full schema validation — all required fields must be present. For partial updates, use `patch` (PATCH) instead, which only validates the fields present in the body. |
-| **`object` FieldType** | Embedded sub-documents are parsed as `'object'` type. ~~The validator does not recurse into nested schemas — only top-level fields are validated.~~ **Fixed in v1.1** — both explicit sub-schemas and inline objects are recursed into. |
-| **No PATCH route** | ~~Only `PUT /:id` (full replace) is supported. There is no `PATCH /:id` for partial updates. Planned for v1.1.~~ **Shipped in v1.1.** |
-| **`?populate=` on getOne** | ~~`getOne` only supports config-level populate, not `?populate=` as a query param.~~ **Shipped in v1.1.** |
-| **Populate leaks full sub-document** | ~~When populating a ref, the entire referenced document is returned including potentially sensitive fields.~~ **Fixed in v1.1** via `populate: [{ path, select }]`. |
-| **No soft delete** | ~~Delete is hard — no `deletedAt` / `isDeleted` flag option.~~ **Shipped in v1.1.** |
-| **No CI/CD pipeline** | No GitHub Actions workflow exists yet. Tests and publish are run manually. Planned for v1.1. |
-| **No CHANGELOG** | No `CHANGELOG.md` exists. Consumers cannot tell what changed between versions without reading raw commits. Planned for v1.1. |
-| **Integration test gap** | Unit tests cover individual modules at 99% but do not cover real HTTP request/response scenarios end-to-end. The `test-api` integration tests require a live MongoDB Atlas connection and are not run in CI. Planned for v1.1. |
-| **Single adapter** | ~~Only Express is supported.~~ **Shipped in v1.2** — `@schemaroute/fastify` now available. Koa, Hono, and others still require a custom adapter. |
-| **`repository.url` warning on publish** | All `package.json` files have a non-normalised `repository.url` that npm auto-corrects on every publish. Minor but noisy. Fix planned for v1.1. |
-| **No request body size limit** | ~~SchemaRoute does not enforce a `maxBodySize` per route.~~ **Shipped in v1.3** — Content-Length guard with chunked-transfer fallback. |
-| **No API versioning** | ~~There is no `prefix` option in `createAPI`.~~ **Shipped in v1.3** — `prefix: '/v1'` prepends to all auto-generated CRUD paths. |
-| **No `expose` whitelist** | ~~DB-only fields could leak through populate or transform.~~ **Shipped in v1.3** — `expose: ['name', 'price']` is the final gate on every response. |
-| **No `ctx.req` in hooks** | ~~Hooks could not access the raw request object.~~ **Shipped in v1.3** — `ctx.req` passed to every hook. |
-| **No `?fields=` on getOne** | ~~`GET /:id` did not support `?fields=name,price`.~~ **Shipped in v1.3** — full parity with `getAll`. |
-| **Transform silently drops fields** | ~~If a user-defined `transform` function omits fields, they silently disappear.~~ **Fixed in v1.1** — `debug: true` warns when transform drops fields. |
-| **SDK has no retry or timeout** | The SDK throws immediately on network failure. There is no retry logic, no configurable timeout, and no exponential backoff. Planned for v1.2. |
-| **No request ID / tracing** | There is no `x-request-id` propagation or built-in request correlation. Failed requests cannot be traced through logs back to a specific API call. Planned for v1.2. |
-| **No built-in health endpoint** | There is no `health: true` option in `createAPI`. Every user must manually add `GET /health` to their app. Planned for v1.1. |
-| **No TypeScript generics on SDK** | ~~`api.products.getAll()` returns `unknown` typed data.~~ **Shipped in v1.2** — `createSDK<{ products: Product }>()` returns fully typed responses. |
-| **No connection circuit breaker** | SchemaRoute returns 503 when MongoDB disconnects but does not queue or retry requests when the connection recovers. No circuit breaker pattern at the handler level. Planned for v1.2. |
-| **No multitenancy / query scoping** | ~~There is no `scope` option.~~ **Shipped in v1.2** — `scope: (req) => ({ tenantId })` auto-applied to every operation. |
-| **No global event system** | There is no way to subscribe to events across all resources globally (e.g. `schemaroute.on('create', auditLog)`). Hooks must be added individually to every resource. Planned for v1.2. |
-| **No file upload support** | `multipart/form-data` is completely unsupported. Resources that need file uploads must bypass SchemaRoute entirely with a custom route. Planned for v1.2. |
-| **No response compression** | No built-in `gzip`/`brotli` option. For large list responses this matters in production. Users must add `compression` middleware themselves. Planned for v1.2. |
-| **No documentation site** | There is no dedicated docs website (e.g. Docusaurus or VitePress). Only a README and ARCHITECTURE.md exist. Searchable, navigable docs are critical for library adoption. Planned for v1.2. |
+| **`object` FieldType** | Embedded sub-documents are parsed as `'object'` type. Both explicit sub-schemas and inline objects are recursed into for validation. |
+| **Koa / Hono adapters** | Only Express and Fastify are supported. Koa, Hono, and others require a custom adapter — see Future adapter guidance. |
+| **No CI/CD pipeline** | No GitHub Actions workflow exists yet. Tests and publish are run manually. |
+| **No CHANGELOG** | No `CHANGELOG.md` exists. Consumers cannot tell what changed between versions without reading raw commits. |
+| **Integration test gap** | Unit tests cover individual modules at 99% but do not cover real HTTP request/response scenarios end-to-end. The `test-api` integration tests require a live MongoDB Atlas connection and are not run in CI. |
+| **`repository.url` warning on publish** | All `package.json` files have a non-normalised `repository.url` that npm auto-corrects on every publish. Minor but noisy. |
+| **SDK has no retry or timeout** | The SDK throws immediately on network failure. There is no retry logic, no configurable timeout, and no exponential backoff. |
+| **No request ID / tracing** | There is no `x-request-id` propagation or built-in request correlation. Failed requests cannot be traced through logs back to a specific API call. |
+| **No built-in health endpoint** | There is no `health: true` option in `createAPI`. Every user must manually add `GET /health` to their app. |
+| **No connection circuit breaker** | SchemaRoute returns 503 when MongoDB disconnects but does not queue or retry requests when the connection recovers. No circuit breaker pattern at the handler level. |
+| **No global event system** | There is no way to subscribe to events across all resources globally (e.g. `schemaroute.on('create', auditLog)`). Hooks must be added individually to every resource. |
+| **No file upload support** | `multipart/form-data` is completely unsupported. Resources that need file uploads must bypass SchemaRoute entirely with a custom route. |
+| **No response compression** | No built-in `gzip`/`brotli` option. For large list responses this matters in production. Users must add `compression` middleware themselves. |
+| **No documentation site** | There is no dedicated docs website (e.g. Docusaurus or VitePress). Only a README and ARCHITECTURE.md exist. Searchable, navigable docs are critical for library adoption. |
 
 ### Future adapter guidance
 

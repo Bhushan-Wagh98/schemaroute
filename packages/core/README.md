@@ -4,7 +4,7 @@
 
 Framework-agnostic core for SchemaRoute. Parses Mongoose schemas, builds route descriptors, validates request bodies, and resolves the full query pipeline (filter, sort, search, pagination, projection, population).
 
-Used internally by adapters like `@schemaroute/express`. You only need to install this directly if you are building your own framework adapter.
+Used internally by adapters like `@schemaroute/express` and `@schemaroute/fastify`. You only need to install this directly if you are building your own framework adapter.
 
 ---
 
@@ -278,6 +278,14 @@ pnpm test --coverage
 ```
 
 306 tests · 99% statement coverage · 100% function coverage
+
+---
+
+## Links
+
+- [GitHub](https://github.com/Bhushan-Wagh98/schemaroute)
+- [@schemaroute/express](https://www.npmjs.com/package/@schemaroute/express)
+- [@schemaroute/fastify](https://www.npmjs.com/package/@schemaroute/fastify)
 
 ---
 
