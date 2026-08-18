@@ -185,6 +185,37 @@ Start with the CRUD-heavy resources. Keep complex domain logic in your own handl
 
 ---
 
+## SchemaRoute has opinions. Here's every one of them.
+
+Adopting SchemaRoute means adopting a set of API behaviors. They are all configurable or escapable — nothing is imposed silently.
+
+| Behavior | Default | How to change it |
+|---|---|---|
+| Response envelope | `{ success, data, meta }` | `response: (data, meta) => ({ ... })` — any shape you want |
+| Validation | off | `routes.create: { validation: true }` — opt in per route |
+| All routes active | GET, POST, PUT, PATCH, DELETE all registered | `routes.delete: { enabled: false }` — disable any route |
+| All routes open | no auth | `routes.create: { middleware: [requireAuth] }` — your middleware |
+| All fields returned | full document | `expose: ['name', 'price']` — whitelist what leaves the API |
+| Any field filterable | `?status=active` works on all schema fields | non-schema fields are ignored; enum values are validated |
+| Pagination | off | `pagination: 'page'` or `'cursor'` or `'both'` |
+| Search | off | `search: 'all-fields'` or `'single-field'` |
+| Population | off | `populate: [{ path: 'category', select: 'name' }]` |
+| Sort | off | `routes.getAll: { sort: true }` |
+| Soft delete | hard delete | `softDelete: true` — sets `deletedAt`/`isDeleted` instead |
+| Scope | none | `scope: (req) => ({ tenantId: req.headers['x-tenant-id'] })` |
+| Error shape | `{ success: false, error, details }` | consistent across all routes — not currently overridable |
+| PATCH semantics | `$set` — only sent fields written | not configurable — use PUT for full replacement |
+| ObjectId validation | invalid IDs return `400` | not configurable — always on |
+| Enum filter validation | invalid enum values return `400` | not configurable — always on |
+| Type coercion in filters | `?price=99` → `{ price: 99 }` (number) | not configurable — always on |
+| Body size limit | Express default | `maxBodySize: '50kb'` — per resource |
+| Rate limiting | none | `rateLimit: { max: 100, window: '1m' }` or bring your own |
+| Debug logging | silent | `debug: true` — logs model registration and handler activity |
+
+The items marked "not configurable" are intentional constraints, not oversights. If any of them conflict with your requirements, use a custom route or a plain controller for that resource instead — SchemaRoute and your own handlers coexist on the same app without conflict.
+
+---
+
 ## Features
 
 ### Querying out of the box

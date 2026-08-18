@@ -159,6 +159,35 @@ Later...
 
 The adoption risk is low because SchemaRoute never touches routes you don't give it.
 
+### Behavioral contract
+
+Adopting SchemaRoute means adopting a set of API behaviors. Every behavior is either configurable or escapable — nothing is imposed silently. The items marked "not configurable" are intentional constraints, not oversights.
+
+| Behavior | Default | Override |
+|---|---|---|
+| Response envelope | `{ success, data, meta }` | `response: (data, meta) => ({ ... })` |
+| Validation | off | `routes.create: { validation: true }` — opt in per route |
+| All routes active | all 6 registered | `routes.delete: { enabled: false }` |
+| All routes open | no auth | `routes.create: { middleware: [requireAuth] }` |
+| All fields returned | full document | `expose: ['name', 'price']` |
+| Any field filterable | all schema fields | non-schema fields ignored; enum values validated |
+| Pagination | off | `pagination: 'page' \| 'cursor' \| 'both'` |
+| Search | off | `search: 'all-fields' \| 'single-field'` |
+| Population | off | `populate: [{ path: 'category', select: 'name' }]` |
+| Sort | off | `routes.getAll: { sort: true }` |
+| Soft delete | hard delete | `softDelete: true` |
+| Scope | none | `scope: (req) => ({ tenantId: ... })` |
+| Error shape | `{ success: false, error, details }` | not configurable — consistent across all routes |
+| PATCH semantics | `$set` — only sent fields written | not configurable — use PUT for full replacement |
+| ObjectId validation | invalid IDs return `400` | not configurable — always on |
+| Enum filter validation | invalid enum values return `400` | not configurable — always on |
+| Type coercion in filters | `?price=99` → number | not configurable — always on |
+| Body size limit | Express default | `maxBodySize: '50kb'` |
+| Rate limiting | none | `rateLimit: { max, window }` or bring your own |
+| Debug logging | silent | `debug: true` |
+
+If any non-configurable behavior conflicts with a resource's requirements, the correct response is to use a custom route or a plain controller for that resource — not to add a config flag. SchemaRoute is not the right tool for every resource in every application.
+
 ### 3-Layer Override System
 
 ```
