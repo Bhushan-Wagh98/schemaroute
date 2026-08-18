@@ -2,8 +2,9 @@
 
 ## What is SchemaRoute?
 
-A framework-agnostic npm library that automatically generates CRUD API routes from a Mongoose schema.
-No boilerplate. No repetition. Just define your schema and get a fully working API.
+A framework-agnostic abstraction layer between a Mongoose schema and an HTTP resource. SchemaRoute parses your schema into a normalised intermediate representation (`SchemaRouteInstance`) and uses it to drive route registration, request validation, query resolution, OpenAPI spec generation, and a typed SDK — all from the same source of truth.
+
+The result: define your schema once, get a fully working API with no boilerplate, and retain full control over auth, response shape, hooks, and escape hatches.
 
 ---
 
@@ -22,15 +23,22 @@ SchemaRoute eliminates all of that.
 ## How It Works
 
 ```
-Mongoose Schema
+Mongoose Schema  (or Mongoose Model — planned)
       │
       ▼
- @schemaroute/core        ← parses schema, builds route definitions
+ @schemaroute/core        ← parses schema, builds normalised SchemaRouteInstance
+      │                      (routes, parsedSchema, resourceName, config)
+      ├──────────────────────────────────────────┐
+      ▼                                          ▼
+ Framework Adapter                         @schemaroute/docs
+ (@schemaroute/express,                    @schemaroute/sdk
+  @schemaroute/fastify, etc.)              (consume the same instance)
       │
       ▼
- Framework Adapter        ← translates route definitions to framework-specific routes
-(@schemaroute/express, @schemaroute/fastify, etc.)
+ HTTP routes registered on the framework
 ```
+
+The `SchemaRouteInstance` is the central object. Adapters, docs, and the SDK all consume it — meaning the route definitions, OpenAPI spec, and typed SDK client are always in sync with the same config.
 
 ---
 
@@ -110,6 +118,46 @@ schemaroute (umbrella)
 ### Intentional Scope
 
 SchemaRoute is intentionally scoped to CRUD-heavy resources. It is not a framework and does not try to replace a service layer. For resources with complex domain logic, the correct pattern is to use SchemaRoute for the simple resources and write plain controllers or custom routes for the complex ones — SchemaRoute supports this via the `custom` option. Trying to push complex orchestration logic into hooks is a sign that the resource has outgrown SchemaRoute, not a sign that SchemaRoute needs more features.
+
+### SchemaRoute does not own your API
+
+SchemaRoute owns only the CRUD routes you give it. Everything else on the same Express or Fastify app is yours:
+
+```js
+// SchemaRoute handles these
+createAPI(app, ProductSchema, 'products', {}, mongoose)
+createAPI(app, CategorySchema, 'categories', {}, mongoose)
+
+// Your own handlers coexist on the same app — no conflict
+app.post('/products/:id/publish', requireAuth, publishProduct)
+app.get('/reports/summary', requireAdmin, generateReport)
+```
+
+This is the intended adoption pattern. Start with the CRUD-heavy resources. Keep complex domain logic in your own handlers. Migrate more resources to SchemaRoute over time as confidence grows.
+
+### Gradual adoption
+
+SchemaRoute is designed to be adopted incrementally — you do not need to convert your whole backend:
+
+```
+Existing application
+
+  /users       → your existing controller
+  /orders      → your existing controller
+  /products    → SchemaRoute
+  /categories  → SchemaRoute
+
+Later...
+
+  /users       → your existing controller  (complex auth logic — keep it)
+  /orders      → your existing controller  (payment hooks — keep it)
+  /products    → SchemaRoute
+  /categories  → SchemaRoute
+  /reviews     → SchemaRoute               (new resource — zero boilerplate)
+  /tags        → SchemaRoute               (new resource — zero boilerplate)
+```
+
+The adoption risk is low because SchemaRoute never touches routes you don't give it.
 
 ### 3-Layer Override System
 
@@ -324,10 +372,26 @@ Not supported and why:
 | `validation` | `boolean` | route | Auto-validate request body against schema |
 | `rateLimit` | `object \| array` | route | `{ max, window }` or bring your own middleware |
 | `transform` | `TransformFn` | route/resource | Reshape each document before sending |
-| `expose` | `string[]` | resource | Whitelist — only these fields ever leave the API |
+| `expose` | `string[]` | resource | Read whitelist — only these fields ever leave the API (applied after transform/populate) |
+| `writable` | `string[]` | resource | Write whitelist — only these fields are accepted in POST/PUT/PATCH bodies *(planned)* |
 | `prefix` | `string` | resource | URL prefix for all routes, e.g. `'/v1'` |
 | `maxBodySize` | `string \| number` | resource | Reject POST/PUT/PATCH bodies over this size |
 | `debug` | `boolean` | resource | Enable diagnostic logging |
+
+**Read vs write field control:**
+
+```
+             Mongoose schema
+                   │
+       ┌───────────┴───────────┐
+       ▼                       ▼
+    READ API                WRITE API
+       │                       │
+    expose                  writable
+ (response gate)         (input gate)
+```
+
+`expose` and `writable` are independent. A field can be readable but not writable (e.g. `createdBy` set by a hook), writable but not readable (unlikely but possible), or both.
 
 ---
 
@@ -593,6 +657,58 @@ Without the generic, all methods return `Record<string, unknown>`.
 
 ---
 
+### Authorization pattern
+
+SchemaRoute does not implement authorization — it provides the hooks for you to plug in your own. The intended pattern:
+
+```
+Authentication middleware  (e.g. passport, JWT verify)
+         ↓
+Authorization middleware   (e.g. RBAC, permission check)
+         ↓
+Scope function             (e.g. tenant isolation)
+         ↓
+SchemaRoute CRUD handler
+```
+
+```js
+createAPI(app, ProductSchema, 'products', {
+  scope: req => ({ organizationId: req.user.organizationId }),  // tenant isolation
+  routes: {
+    create: { middleware: [requireAuth, can('product:create')] },
+    update: { middleware: [requireAuth, can('product:update')] },
+    delete: { middleware: [requireAuth, can('product:delete')] },
+  },
+}, mongoose)
+```
+
+SchemaRoute's responsibility ends at the CRUD boundary. Auth is yours.
+
+---
+
+### inspectAPI (planned)
+
+A planned `inspectAPI()` utility that prints a human-readable summary of what SchemaRoute has registered for a resource — directly attacking the "magic" problem:
+
+```
+GET    /products           public
+GET    /products/:id       public
+POST   /products           middleware: [requireAuth]
+PUT    /products/:id       middleware: [requireAuth]
+PATCH  /products/:id       middleware: [requireAuth]
+DELETE /products/:id       middleware: [requireAuth, requireAdmin]
+
+Query:   filter ✓  sort ✓  fields ✓  pagination: page  search: all-fields
+Populate: category (select: name slug)
+
+Exposed:  name, price, status, category
+Writable: name, price, status, category  (planned)
+```
+
+The data is already available on `SchemaRouteInstance` — this is a formatting layer over existing internals.
+
+---
+
 ## Shipped
 
 - [x] Schema parser
@@ -638,6 +754,11 @@ Without the generic, all methods return `Record<string, unknown>`.
 ## Remaining
 
 ### Immediate — fixable now, no design decisions needed
+
+**API ergonomics**
+- [ ] Accept a Mongoose Model as the second argument — detect `model.schema` and `model.db`, extract both, fall back to current Schema behaviour; removes the need to pass `mongoose` as a 5th argument when a Model is provided; no breaking change
+- [ ] `writable` field whitelist — resource-level `writable: ['name', 'price']` strips any fields not in the list from POST/PUT/PATCH bodies before they reach the DB; same pattern as `expose` but for writes; closes the read/write security symmetry gap
+- [ ] `inspectAPI(instance)` utility — prints a formatted route table (method, path, middleware, exposed fields, writable fields, query capabilities) to stdout; uses existing `SchemaRouteInstance` data; no new internals needed
 
 **Infrastructure**
 - [ ] GitHub Actions CI/CD pipeline — run tests on every PR, publish on version tag via Changesets
@@ -724,6 +845,9 @@ Without the generic, all methods return `Record<string, unknown>`.
 | **Update validation** | `validation: true` on `update` (PUT) runs full schema validation — all required fields must be present. For partial updates, use `patch` (PATCH) instead, which only validates the fields present in the body. |
 | **`object` FieldType** | Embedded sub-documents are parsed as `'object'` type. Both explicit sub-schemas and inline objects are recursed into for validation. |
 | **Koa / Hono adapters** | Only Express and Fastify are supported. Koa, Hono, and others require a custom adapter — see Future adapter guidance. |
+| **Schema-only input** | `createAPI` currently requires a Mongoose Schema + separate mongoose instance. Passing an already-constructed Mongoose Model directly is not yet supported — planned. |
+| **No `writable` field control** | `expose` controls what leaves the API. There is no equivalent `writable` option to control what fields a client can write. Fields not in a hook's `beforeCreate`/`beforeUpdate` can be written freely. Planned. |
+| **No `inspectAPI` utility** | There is no built-in way to print a human-readable summary of what SchemaRoute has registered. `instance.routes` and `instance.parsedSchema` are inspectable programmatically but there is no formatted output. Planned. |
 | **No CI/CD pipeline** | No GitHub Actions workflow exists yet. Tests and publish are run manually. |
 | **No CHANGELOG** | No `CHANGELOG.md` exists. Consumers cannot tell what changed between versions without reading raw commits. |
 | **Integration test gap** | Unit tests cover individual modules at 99% but do not cover real HTTP request/response scenarios end-to-end. The `test-api` integration tests require a live MongoDB Atlas connection and are not run in CI. |

@@ -485,6 +485,61 @@ Field filter values are automatically coerced to their schema type — `?price=9
 
 ---
 
+## SchemaRoute does not own your API
+
+SchemaRoute owns only the CRUD routes you give it. Everything else on the same app is yours:
+
+```js
+// SchemaRoute handles these
+createAPI(app, ProductSchema, 'products', {}, mongoose)
+createAPI(app, CategorySchema, 'categories', {}, mongoose)
+
+// Your own handlers coexist on the same app — no conflict
+app.post('/products/:id/publish', requireAuth, publishProduct)
+app.get('/reports/summary', requireAdmin, generateReport)
+```
+
+Start with the CRUD-heavy resources. Keep complex domain logic in your own handlers. Add more resources over time:
+
+```
+/users       → your existing controller  (complex auth — keep it)
+/orders      → your existing controller  (payment logic — keep it)
+/products    → SchemaRoute
+/categories  → SchemaRoute
+/reviews     → SchemaRoute               (new resource — zero boilerplate)
+```
+
+---
+
+## Authorization pattern
+
+SchemaRoute does not implement authorization — it provides the hooks for you to plug in your own:
+
+```
+Authentication middleware  (e.g. passport, JWT verify)
+         ↓
+Authorization middleware   (e.g. RBAC, permission check)
+         ↓
+Scope function             (e.g. tenant isolation)
+         ↓
+SchemaRoute CRUD handler
+```
+
+```js
+createAPI(app, ProductSchema, 'products', {
+  scope: req => ({ organizationId: req.user.organizationId }),
+  routes: {
+    create: { middleware: [requireAuth, can('product:create')] },
+    update: { middleware: [requireAuth, can('product:update')] },
+    delete: { middleware: [requireAuth, can('product:delete')] },
+  },
+}, mongoose)
+```
+
+SchemaRoute's responsibility ends at the CRUD boundary. Auth is yours.
+
+MIT
+
 ## Debug Logging
 
 Pass `debug: true` in the resource config to enable diagnostic output from SchemaRoute. Logs model registration and handler errors to stdout. Silent by default — libraries should never log unconditionally.

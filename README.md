@@ -159,6 +159,32 @@ SchemaRoute eliminates all of that. And unlike AI-generated boilerplate, it stay
 
 ---
 
+## SchemaRoute does not own your API
+
+SchemaRoute owns only the CRUD routes you give it. Everything else on the same app is yours:
+
+```js
+// SchemaRoute handles these
+createAPI(app, ProductSchema, 'products', {}, mongoose)
+createAPI(app, CategorySchema, 'categories', {}, mongoose)
+
+// Your own handlers coexist on the same app — no conflict
+app.post('/products/:id/publish', requireAuth, publishProduct)
+app.get('/reports/summary', requireAdmin, generateReport)
+```
+
+Start with the CRUD-heavy resources. Keep complex domain logic in your own handlers. Add more resources to SchemaRoute over time as confidence grows:
+
+```
+/users       → your existing controller  (complex auth — keep it)
+/orders      → your existing controller  (payment logic — keep it)
+/products    → SchemaRoute
+/categories  → SchemaRoute
+/reviews     → SchemaRoute               (new resource — zero boilerplate)
+```
+
+---
+
 ## Features
 
 ### Querying out of the box
