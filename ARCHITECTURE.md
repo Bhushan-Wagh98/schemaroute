@@ -646,6 +646,8 @@ Without the generic, all methods return `Record<string, unknown>`.
 **API Features (user-facing, high impact)**
 - [ ] Built-in health endpoint — `health: true` in `createAPI` auto-registers `GET /health`; needed for k8s liveness/readiness probes
 - [ ] Bulk operations — `POST /resource/bulk` and `DELETE /resource/bulk` with hooks and scope support
+- [ ] Transaction support — `ctx.session` passed to every hook so multi-step writes (e.g. `beforeCreate` hashes password + `afterCreate` creates related record) can be wrapped in a Mongoose session; without this, hook sequences have no atomicity guarantee and a failure mid-chain leaves the DB in a partial state
+- [ ] Input schema decoupling — `inputSchema` option per route to define validation and filtering independently of the Mongoose schema; today the API contract is structurally coupled to the DB shape, which breaks down when the two need to diverge as the system evolves
 
 **Reliability**
 - [ ] Connection circuit breaker — open on repeated failures, half-open on recovery; prevents thundering-herd reconnect storms
@@ -655,7 +657,8 @@ Without the generic, all methods return `Record<string, unknown>`.
 - [ ] SDK retry logic — `{ retries: 3, backoff: 'exponential', timeout: 5000 }` option; retry on transient errors (503, network timeout), not on client errors (400, 422)
 
 **Observability**
-- [ ] Request ID / tracing — read `x-request-id` from request (or generate one), attach to hook context, include in error responses and debug logs
+- [ ] Request ID / tracing — read `x-request-id` from request (or generate one), attach to hook `ctx`, include in every error response and debug log line; without this a failed request in production cannot be correlated back to a specific operation across multiple log lines or service instances
+- [ ] Structured log output — `debug: true` currently writes unstructured console output; production observability requires structured JSON logs with consistent fields (requestId, resourceName, operation, durationMs) that can be ingested by log aggregators (Datadog, CloudWatch, etc.)
 - [ ] Response caching hooks — `afterGetAll` / `afterGetOne` hooks for cache population; `cacheKey` option so SchemaRoute can check cache before hitting MongoDB
 
 **Extensibility**

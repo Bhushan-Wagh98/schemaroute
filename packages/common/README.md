@@ -14,8 +14,8 @@ All shared interfaces and types used across the SchemaRoute ecosystem:
 
 **Instances & Config**
 - `SchemaRouteInstance` — return value of `createAPI` / `createSchemaRoute`
-- `ResourceConfig` — full config object passed to `createAPI`
-- `GetAllRouteConfig`, `GetOneRouteConfig`, `CreateRouteConfig`, `UpdateRouteConfig`, `DeleteRouteConfig`
+- `ResourceConfig` — full config object passed to `createAPI` (`pagination`, `search`, `populate`, `exclude`, `expose`, `prefix`, `maxBodySize`, `scope`, `softDelete`, `transform`, `debug`, `routes`, `custom`)
+- `GetAllRouteConfig`, `GetOneRouteConfig`, `CreateRouteConfig`, `UpdateRouteConfig`, `PatchRouteConfig`, `DeleteRouteConfig`
 - `CustomRoute`
 
 **Schema**
@@ -23,11 +23,11 @@ All shared interfaces and types used across the SchemaRoute ecosystem:
 
 **Routes**
 - `RouteDefinition` — framework-agnostic route descriptor
-- `HttpMethod` — `'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'`
+- `HttpMethod` — `'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'`
 
 **Hooks & Context**
-- `Hooks` — `beforeCreate`, `afterCreate`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete`
-- `RequestContext` — hook context (headers, query, params, user)
+- `Hooks` — `beforeCreate`, `afterCreate`, `beforeUpdate`, `afterUpdate`, `beforeDelete`, `afterDelete` — all receive `(data/doc, ctx)`
+- `RequestContext` — hook context (`headers`, `query`, `params`, `user`, `req`)
 
 **Response**
 - `ResponseMeta` — pagination metadata in list responses

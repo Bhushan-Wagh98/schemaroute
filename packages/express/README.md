@@ -88,6 +88,7 @@ GET    /products
 GET    /products/:id
 POST   /products
 PUT    /products/:id
+PATCH  /products/:id
 DELETE /products/:id
 ```
 
@@ -146,12 +147,15 @@ Safe to call multiple times — registers only once per app instance.
 createAPI(app, ProductSchema, 'products', {
 
   // resource-level defaults (apply to all routes unless overridden)
-  pagination: 'page',
-  search:     'all-fields',
-  populate:   ['category'],
-  exclude:    ['__v'],
-  transform:  (doc) => ({ id: doc._id, ...doc }),  // reshape every response doc
-  debug:      false,  // set true to enable diagnostic logging
+  pagination:  'page',
+  search:      'all-fields',
+  populate:    ['category'],
+  exclude:     ['__v'],
+  expose:      ['name', 'price', 'stock', 'status', 'category'],  // whitelist — only these fields ever leave the API
+  prefix:      '/v1',          // all routes registered under /v1/products
+  maxBodySize: '100kb',        // reject POST/PUT/PATCH bodies over this size
+  transform:   (doc) => ({ id: doc._id, ...doc }),
+  debug:       false,
 
   routes: {
 
@@ -256,6 +260,9 @@ createAPI(app, ProductSchema, 'products', {
 | `exclude` | `string[]` | — | Fields to strip from the response |
 | `select` | `string[]` | — | Fields to include in the response |
 | `transform` | `TransformFn` | — | Reshape each document before sending |
+| `expose` | `string[]` | — | Resource-level whitelist — only these fields ever leave the API (applied after transform) |
+| `prefix` | `string` | — | URL prefix for all routes, e.g. `'/v1'` |
+| `maxBodySize` | `string \| number` | — | Reject POST/PUT/PATCH bodies over this size, e.g. `'50kb'` |
 
 ---
 
@@ -356,7 +363,7 @@ Every `GET /resource` endpoint supports:
 |---|---|---|
 | Field filter | `?status=active&category=abc` | Filter by any schema field. Returns `400` if value is not a valid enum member |
 | `sort` | `?sort=price&order=desc` | Sort by field. Returns `400` for unknown field names |
-| `fields` | `?fields=name,price` | Select specific fields. Returns `400` for unknown field names. Ref fields not listed are not populated |
+| `fields` | `?fields=name,price` | Select specific fields — works on both `getAll` and `getOne`. Returns `400` for unknown field names. Ref fields not listed are not populated |
 | `search` | `?search=laptop` | Full-text search. Empty/whitespace values are ignored |
 | `searchField` | `?searchField=name` | Restrict search to one field |
 | `page` | `?page=2&limit=10` | Page-based pagination. Returns `400` if `page < 1` |

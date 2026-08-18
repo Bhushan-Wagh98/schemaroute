@@ -33,7 +33,8 @@ const api = createSDK('http://localhost:3000', [productsInstance, categoriesInst
 const { data, meta } = await api.products.getAll({ page: 1, limit: 10 })
 const product        = await api.products.getOne('abc123')
 const created        = await api.products.create({ name: 'Laptop', price: 999, stock: 10 })
-const updated        = await api.products.update('abc123', { price: 899 })
+const updated        = await api.products.update('abc123', { price: 899 })  // PUT — full replace
+const patched        = await api.products.patch('abc123', { price: 799 })   // PATCH — partial update
 await api.products.delete('abc123')
 ```
 
@@ -61,7 +62,7 @@ const api = createSDK('http://localhost:3000', [productsInstance], {
 
 ## Resource Methods
 
-Each resource on the SDK object exposes five methods:
+Each resource on the SDK object exposes six methods:
 
 ### `getAll(params?)`
 
@@ -116,6 +117,15 @@ Updates an existing document by ID.
 ```ts
 const { data } = await api.products.update('abc123', { price: 899, stock: 5 })
 // data → updated Product
+```
+
+### `patch(id, body, params?)`
+
+Partially updates a document by ID via `PATCH`. Only the fields in `body` are written — absent fields are left unchanged.
+
+```ts
+const { data } = await api.products.patch('abc123', { price: 799 })
+// data → updated Product (only price changed, all other fields unchanged)
 ```
 
 ### `delete(id, params?)`
@@ -186,6 +196,7 @@ import type {
   GetOneParams,
   CreateParams,
   UpdateParams,
+  PatchParams,
   DeleteParams,
   ListResponse,
   SingleResponse,

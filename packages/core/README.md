@@ -84,6 +84,8 @@ const routes = buildRoutes('products', {
 
 Custom routes are appended last in the array but must be registered by the adapter **before** `/:id` routes to prevent named paths (e.g. `/products/active`) being caught by the id param.
 
+When `prefix` is set (e.g. `prefix: '/v1'`), it is prepended to every auto-generated CRUD path. Custom routes define their own full path and are unaffected.
+
 ---
 
 ### `validate(body, parsedSchema)`
@@ -156,7 +158,7 @@ When `resolveQuery` is used, the following query params are supported on list en
 |---|---|---|
 | Field filter | `?status=active` | Filter by any schema field. Returns `400` if value is not a valid enum member |
 | `sort` | `?sort=price&order=desc` | Sort by field (`asc` / `desc`). Returns `400` for unknown field names |
-| `fields` | `?fields=name,price` | Select specific fields. Returns `400` for unknown field names. Ref fields not listed are not populated |
+| `fields` | `?fields=name,price` | Select specific fields on `getAll` and `getOne`. Returns `400` for unknown field names. Ref fields not listed are not populated |
 | `search` | `?search=laptop` | Search across all string fields. Empty/whitespace values are ignored |
 | `searchField` | `?searchField=name` | Restrict search to a specific field |
 | `page` | `?page=2&limit=10` | Page-based pagination. Returns `400` if `page < 1` |
@@ -175,14 +177,20 @@ interface ResourceConfig {
   populate?:    string[]
   exclude?:     string[]
   select?:      string[]
+  expose?:      string[]          // whitelist — only these fields ever leave the API
+  prefix?:      string            // e.g. '/v1' — prepended to all auto-generated paths
+  maxBodySize?: string | number   // e.g. '100kb' — rejects oversized POST/PUT/PATCH bodies
+  scope?:       (req: any) => Record<string, unknown>
+  softDelete?:  boolean | { field?: string; flagField?: string }
   transform?:   (doc: any) => any
   response?:    (data: any, meta: any) => any
-  debug?:       boolean   // enable diagnostic logging (default: false)
+  debug?:       boolean
   routes?: {
     getAll?:  GetAllRouteConfig
     getOne?:  GetOneRouteConfig
     create?:  CreateRouteConfig
     update?:  UpdateRouteConfig
+    patch?:   PatchRouteConfig
     delete?:  DeleteRouteConfig
   }
   custom?: CustomRoute[]
@@ -219,12 +227,17 @@ import type {
   GetOneRouteConfig,
   CreateRouteConfig,
   UpdateRouteConfig,
+  PatchRouteConfig,
   DeleteRouteConfig,
   CustomRoute,
   MiddlewareFn,
   RateLimitOption,
   BuiltInRateLimit,
   HttpMethod,
+  ScopeFn,
+  SoftDeleteOption,
+  PopulateOption,
+  PopulateFieldConfig,
 } from '@schemaroute/core'
 ```
 
@@ -264,7 +277,7 @@ pnpm test
 pnpm test --coverage
 ```
 
-116 tests · 99.63% statement coverage · 100% function coverage
+306 tests · 99% statement coverage · 100% function coverage
 
 ---
 
