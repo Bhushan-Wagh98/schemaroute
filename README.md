@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/schemaroute)](https://www.npmjs.com/package/schemaroute)
 [![license](https://img.shields.io/npm/l/schemaroute)](./LICENSE)
-[![tests](https://img.shields.io/badge/tests-306%20passing-brightgreen)](#testing)
+[![tests](https://img.shields.io/badge/tests-371%20passing-brightgreen)](#testing)
 [![coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)](#testing)
 
 Auto-generate a fully working CRUD API from a Mongoose schema. No boilerplate. No repetition.
@@ -158,6 +158,7 @@ That's it. You now have a fully working REST API with:
 - ✅ Population of refs with optional field selection
 - ✅ Partial updates via PATCH
 - ✅ Soft delete with automatic read exclusion
+- ✅ Soft delete restore (`POST /:id/restore`) and permanent purge (`DELETE /:id/purge`)
 - ✅ Multitenancy via scope
 - ✅ Standard error responses
 - ✅ Expose field whitelist — DB-only fields never leak
@@ -224,7 +225,7 @@ Adopting SchemaRoute means adopting a set of API behaviors. They are all configu
 | Search | off | `search: 'all-fields'` or `'single-field'` |
 | Population | off | `populate: [{ path: 'category', select: 'name' }]` |
 | Sort | off | `routes.getAll: { sort: true }` |
-| Soft delete | hard delete | `softDelete: true` — sets `deletedAt`/`isDeleted` instead |
+| Soft delete | hard delete | `softDelete: true` — sets `deletedAt`/`isDeleted` instead; opt-in `restore` and `purge` routes complete the lifecycle |
 | Scope | none | `scope: (req) => ({ tenantId: req.headers['x-tenant-id'] })` |
 | Error shape | `{ success: false, error, details }` | consistent across all routes — not currently overridable |
 | PATCH semantics | `$set` — only sent fields written | not configurable — use PUT for full replacement |
@@ -347,6 +348,9 @@ createAPI(app, ProductSchema, 'products', {
         await cleanupRelated(doc._id)
       },
     },
+    // restore and purge — only active when softDelete: true
+    restore: { enabled: true, middleware: [requireAuth] },
+    purge:   { enabled: true, middleware: [requireAuth, requireAdmin] },
   },
 
   custom: [
@@ -483,7 +487,8 @@ schemaroute-lib/
 │   ├── common/         ← shared types (zero runtime deps)
 │   └── schemaroute/    ← umbrella package
 ├── apps/
-│   └── test-api/       ← local test server (not published)
+│   ├── test-api/           ← Express test server (not published)
+│   └── test-api fastify/   ← Fastify test server (not published)
 └── ARCHITECTURE.md
 ```
 
@@ -496,7 +501,7 @@ schemaroute-lib/
 | Turborepo | Monorepo build orchestration |
 | tsup | ESM + CJS dual build |
 | TypeScript strict | Type safety |
-| Vitest | Unit tests (306 tests, 99% coverage) |
+| Vitest | Unit tests (371 tests, 99% coverage) |
 | pnpm | Package manager |
 
 ---

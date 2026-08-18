@@ -208,12 +208,14 @@ interface ResourceConfig {
   response?:    (data: any, meta: any) => any
   debug?:       boolean
   routes?: {
-    getAll?:  GetAllRouteConfig
-    getOne?:  GetOneRouteConfig
-    create?:  CreateRouteConfig
-    update?:  UpdateRouteConfig
-    patch?:   PatchRouteConfig
-    delete?:  DeleteRouteConfig
+    getAll?:   GetAllRouteConfig
+    getOne?:   GetOneRouteConfig
+    create?:   CreateRouteConfig
+    update?:   UpdateRouteConfig
+    patch?:    PatchRouteConfig
+    delete?:   DeleteRouteConfig
+    restore?:  RestoreRouteConfig  // only active when softDelete is enabled; disabled by default
+    purge?:    PurgeRouteConfig    // only active when softDelete is enabled; disabled by default
   }
   custom?: CustomRoute[]
 }
@@ -251,6 +253,8 @@ import type {
   UpdateRouteConfig,
   PatchRouteConfig,
   DeleteRouteConfig,
+  RestoreRouteConfig,
+  PurgeRouteConfig,
   CustomRoute,
   MiddlewareFn,
   RateLimitOption,
@@ -299,7 +303,7 @@ pnpm test
 pnpm test --coverage
 ```
 
-306 tests · 99% statement coverage · 100% function coverage
+214 unit tests · 99% statement coverage · 100% function coverage
 
 ---
 

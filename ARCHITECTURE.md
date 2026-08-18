@@ -50,31 +50,28 @@ schemaroute-lib/
 │   ├── common/           ← shared TypeScript types (zero runtime deps)
 │   ├── core/             ← schema parser, route builder, validation, adapter utilities
 │   │   └── src/
-│   │       ├── adapter-utils.ts  ← deriveModelName, isValidObjectId, assertConnected, registerModel, makeResolveModel
-│   │       ├── soft-delete.ts    ← resolveSoftDeleteFields, buildSoftDeleteUpdate, buildSoftDeleteFilter
-│   │       ├── schema-parser.ts
-│   │       ├── route-builder.ts
-│   │       ├── validator.ts
+│   │       ├── parsing/          ← schema-parser.ts, validator.ts
+│   │       ├── routing/          ← route-builder.ts
+│   │       ├── soft-delete/      ← index.ts (all soft-delete helpers)
+│   │       ├── utils/            ← adapter-utils.ts, inspect.ts
 │   │       └── query/            ← filter, sort, projection, populate, search, pagination
 │   ├── express/          ← Express adapter
 │   │   └── src/
-│   │       ├── index.ts          ← createAPI entry point
-│   │       ├── handlers/         ← get-all, get-one, create, update, patch, delete
-│   │       ├── db/               ← document.ts (stripExcludedFields, transform), soft-delete.ts (re-export)
+│   │       ├── handlers/         ← get-all, get-one, create, update, patch, delete, restore, purge
 │   │       ├── http/             ← context.ts, response.ts
-│   │       ├── logger.ts
-│   │       └── rate-limiter.ts
+│   │       ├── middleware/       ← body-size.ts, rate-limiter.ts
+│   │       └── utils/            ← document.ts, logger.ts, resolve-mongoose.ts
 │   ├── fastify/          ← Fastify adapter (mirrors express structure)
 │   │   └── src/
-│   │       ├── index.ts          ← createAPI entry point
-│   │       ├── handlers/         ← get-all, get-one, create, update, patch, delete
+│   │       ├── handlers/         ← get-all, get-one, create, update, patch, delete, restore, purge
 │   │       ├── http/             ← response.ts
-│   │       └── soft-delete.ts    ← re-export from @schemaroute/core
+│   │       └── utils/            ← body-size.ts, logger.ts, resolve-mongoose.ts
 │   ├── docs/             ← OpenAPI 3.0 spec generator + Swagger UI
 │   ├── sdk/              ← TypeScript client SDK (typed generics, patch method)
 │   └── schemaroute/      ← umbrella package
 ├── apps/
-│   └── test-api/         ← local test server (not published)
+│   ├── test-api/             ← Express test server (not published)
+│   └── test-api fastify/     ← Fastify test server (not published)
 ├── package.json          ← turborepo root
 ├── turbo.json
 ├── pnpm-workspace.yaml
@@ -770,7 +767,7 @@ The data is already available on `SchemaRouteInstance` — this is a formatting 
 - [x] `?populate=` query param on `getOne` — parity with `getAll`
 - [x] Populate field selection — `populate: [{ path: 'category', select: 'name slug' }]` prevents sensitive field leaking
 - [x] Nested schema validation — recurses into embedded sub-documents; dot-notation error paths (e.g. `address.street`)
-- [x] Soft delete — `softDelete: true` sets `deletedAt`/`isDeleted`; reads auto-exclude deleted docs; restore via PATCH
+- [x] Soft delete — `softDelete: true` sets `deletedAt`/`isDeleted`; reads auto-exclude deleted docs; full lifecycle via `restore` and `purge` routes
 - [x] Transform output validation — `debug: true` warns when transform silently drops fields
 - [x] `@schemaroute/fastify` adapter — full feature parity with Express adapter
 - [x] TypeScript generics on SDK — `createSDK<{ products: Product }>()` returns fully typed responses; `patch()` method added
@@ -784,6 +781,9 @@ The data is already available on `SchemaRouteInstance` — this is a formatting 
 - [x] Accept a Mongoose Model as the second argument — detects `model.schema` and `model.db`, extracts both, falls back to Schema behaviour; removes the need to pass `mongoose` as a 5th argument when a Model is provided; no breaking change
 - [x] `writable` field whitelist — resource-level `writable: ['name', 'price']` strips any fields not in the list from POST/PUT/PATCH bodies before they reach hooks or the DB; closes the read/write security symmetry gap
 - [x] `inspectAPI(instance)` utility — prints a formatted route table (method, path, middleware, exposed fields, writable fields, query capabilities) to stdout; uses existing `SchemaRouteInstance` data; no new internals needed
+- [x] Soft delete full lifecycle — `restore` (`POST /:id/restore`) and `purge` (`DELETE /:id/purge`) routes; both disabled by default, opt in via `routes.restore.enabled` / `routes.purge.enabled`; restore returns 404 on live docs; purge returns 404 on live docs; second delete returns 404
+- [x] Fastify adapter parity — middleware enforcement via `preHandler`, `prefix` support, `maxBodySize` guard, `transform` applied in all write handlers and `get-all`, `?fields=` on `getOne`, ref existence check in create/update/patch; full feature parity with Express adapter
+- [x] Industry-standard folder structure — core split into `parsing/`, `routing/`, `soft-delete/`, `utils/`; express split into `handlers/`, `http/`, `middleware/`, `utils/`; fastify split into `handlers/`, `http/`, `utils/`
 
 ## Remaining
 

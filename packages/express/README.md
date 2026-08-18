@@ -431,7 +431,7 @@ createAPI(app, ProductSchema, 'products', {
 }, mongoose)
 ```
 
-`DELETE /:id` sets `deletedAt` + `isDeleted` instead of removing the document. All reads automatically exclude soft-deleted documents. Restore via `PATCH`: `{ isDeleted: false, deletedAt: null }`.
+`DELETE /:id` sets `deletedAt` + `isDeleted` instead of removing the document. All reads automatically exclude soft-deleted documents.
 
 The fields must exist on the schema:
 
@@ -442,6 +442,25 @@ const ProductSchema = new Schema({
   isDeleted: { type: Boolean, default: false },
 })
 ```
+
+**Restore and purge** are opt-in routes that complete the soft delete lifecycle:
+
+```js
+createAPI(app, ProductSchema, 'products', {
+  softDelete: true,
+  routes: {
+    delete:  { middleware: [requireAuth] },
+    restore: { enabled: true, middleware: [requireAuth] },          // POST /:id/restore
+    purge:   { enabled: true, middleware: [requireAuth, requireAdmin] }, // DELETE /:id/purge
+  },
+}, mongoose)
+```
+
+| Route | Behaviour |
+|---|---|
+| `DELETE /:id` | Soft-deletes a live document. Returns `404` if already deleted. |
+| `POST /:id/restore` | Restores a soft-deleted document. Returns `404` if live or non-existent. |
+| `DELETE /:id/purge` | Permanently removes a soft-deleted document. Returns `404` if live or non-existent. |
 
 ---
 
