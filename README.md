@@ -18,6 +18,10 @@ createAPI(app, UserSchema, 'users', {}, mongoose)
 // DELETE /users/:id
 ```
 
+SchemaRoute automates CRUD-heavy resources without trying to become your application framework. Complex domain logic stays in your own controllers. Auth stays in your own middleware. SchemaRoute owns only the routes you give it.
+
+> Trying to push complex orchestration logic into hooks is a sign that the resource has outgrown SchemaRoute — not a sign that SchemaRoute needs more features.
+
 ---
 
 ## What is actually exposed?
@@ -192,7 +196,7 @@ Adopting SchemaRoute means adopting a set of API behaviors. They are all configu
 | Behavior | Default | How to change it |
 |---|---|---|
 | Response envelope | `{ success, data, meta }` | `response: (data, meta) => ({ ... })` — any shape you want |
-| Validation | off | `routes.create: { validation: true }` — opt in per route |
+| Validation | off | `routes.create: { validation: true }` — opt in per route. Off by default because Mongoose validates on save — SchemaRoute validation runs *before* the DB write and returns structured `422` errors with field-level detail, which is additive, not duplicative. |
 | All routes active | GET, POST, PUT, PATCH, DELETE all registered | `routes.delete: { enabled: false }` — disable any route |
 | All routes open | no auth | `routes.create: { middleware: [requireAuth] }` — your middleware |
 | All fields returned | full document | `expose: ['name', 'price']` — whitelist what leaves the API |

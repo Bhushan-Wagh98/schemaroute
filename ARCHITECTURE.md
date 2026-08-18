@@ -113,11 +113,13 @@ schemaroute (umbrella)
 
 ## Design Philosophy
 
+**SchemaRoute automates CRUD-heavy resources without trying to become your application framework.**
+
+Complex domain logic stays in your own controllers. Auth stays in your own middleware. SchemaRoute owns only the routes you give it.
+
+Trying to push complex orchestration logic into hooks is a sign that the resource has outgrown SchemaRoute — not a sign that SchemaRoute needs more features. For resources with complex domain logic, the correct pattern is to use SchemaRoute for the simple resources and write plain controllers or custom routes for the complex ones.
+
 **Never force one option — always let user choose per resource, per route.**
-
-### Intentional Scope
-
-SchemaRoute is intentionally scoped to CRUD-heavy resources. It is not a framework and does not try to replace a service layer. For resources with complex domain logic, the correct pattern is to use SchemaRoute for the simple resources and write plain controllers or custom routes for the complex ones — SchemaRoute supports this via the `custom` option. Trying to push complex orchestration logic into hooks is a sign that the resource has outgrown SchemaRoute, not a sign that SchemaRoute needs more features.
 
 ### SchemaRoute does not own your API
 
@@ -166,7 +168,7 @@ Adopting SchemaRoute means adopting a set of API behaviors. Every behavior is ei
 | Behavior | Default | Override |
 |---|---|---|
 | Response envelope | `{ success, data, meta }` | `response: (data, meta) => ({ ... })` |
-| Validation | off | `routes.create: { validation: true }` — opt in per route |
+| Validation | off | `routes.create: { validation: true }` — opt in per route. Off by default because Mongoose validates on save — SchemaRoute validation runs before the DB write and returns structured `422` errors with field-level detail, which is additive not duplicative. |
 | All routes active | all 6 registered | `routes.delete: { enabled: false }` |
 | All routes open | no auth | `routes.create: { middleware: [requireAuth] }` |
 | All fields returned | full document | `expose: ['name', 'price']` |
@@ -787,6 +789,7 @@ The data is already available on `SchemaRouteInstance` — this is a formatting 
 **API ergonomics**
 - [ ] Accept a Mongoose Model as the second argument — detect `model.schema` and `model.db`, extract both, fall back to current Schema behaviour; removes the need to pass `mongoose` as a 5th argument when a Model is provided; no breaking change
 - [ ] `writable` field whitelist — resource-level `writable: ['name', 'price']` strips any fields not in the list from POST/PUT/PATCH bodies before they reach the DB; same pattern as `expose` but for writes; closes the read/write security symmetry gap
+- [ ] `auth` shorthand — `auth: requireAuth` applies the middleware to all write routes (POST, PUT, PATCH, DELETE) without repeating it per-route; SchemaRoute still does not implement auth — it just attaches the middleware you provide; read routes remain unaffected unless explicitly configured
 - [ ] `inspectAPI(instance)` utility — prints a formatted route table (method, path, middleware, exposed fields, writable fields, query capabilities) to stdout; uses existing `SchemaRouteInstance` data; no new internals needed
 
 **Infrastructure**
@@ -876,6 +879,7 @@ The data is already available on `SchemaRouteInstance` — this is a formatting 
 | **Koa / Hono adapters** | Only Express and Fastify are supported. Koa, Hono, and others require a custom adapter — see Future adapter guidance. |
 | **Schema-only input** | `createAPI` currently requires a Mongoose Schema + separate mongoose instance. Passing an already-constructed Mongoose Model directly is not yet supported — planned. |
 | **No `writable` field control** | `expose` controls what leaves the API. There is no equivalent `writable` option to control what fields a client can write. Fields not in a hook's `beforeCreate`/`beforeUpdate` can be written freely. Planned. |
+| **No `auth` shorthand** | There is no `auth: requireAuth` option to apply a middleware to all write routes at once. Each route must be configured individually via `routes.create.middleware`, `routes.update.middleware`, etc. Planned. |
 | **No `inspectAPI` utility** | There is no built-in way to print a human-readable summary of what SchemaRoute has registered. `instance.routes` and `instance.parsedSchema` are inspectable programmatically but there is no formatted output. Planned. |
 | **No CI/CD pipeline** | No GitHub Actions workflow exists yet. Tests and publish are run manually. |
 | **No CHANGELOG** | No `CHANGELOG.md` exists. Consumers cannot tell what changed between versions without reading raw commits. |
