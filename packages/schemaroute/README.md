@@ -12,6 +12,7 @@ createAPI(app, UserSchema, 'users')
 // GET    /users/:id
 // POST   /users
 // PUT    /users/:id
+// PATCH  /users/:id
 // DELETE /users/:id
 ```
 
@@ -30,6 +31,7 @@ This single package includes everything:
 | `@schemaroute/common` | Shared TypeScript types — zero runtime dependencies |
 | `@schemaroute/core` | Framework-agnostic schema parser, route builder, validator, query pipeline |
 | `@schemaroute/express` | Express adapter — registers routes on an Express app |
+| `@schemaroute/fastify` | Fastify adapter — full feature parity with Express adapter |
 | `@schemaroute/docs` | OpenAPI 3.0 spec generator + Swagger UI |
 | `@schemaroute/sdk` | Auto-generated TypeScript client SDK |
 
@@ -71,7 +73,7 @@ Every `GET /resource` endpoint supports:
 |---|---|---|
 | Field filter | `?status=active&category=abc` | Filter by any schema field |
 | Sort | `?sort=price&order=desc` | Sort by any field |
-| Fields | `?fields=name,price,stock` | Select specific fields |
+| Fields | `?fields=name,price,stock` | Select specific fields — works on both `getAll` and `getOne` |
 | Search | `?search=laptop` | Search across all string fields |
 | Search field | `?search=laptop&searchField=name` | Search in a specific field |
 | Page pagination | `?page=2&limit=10` | Offset-based pagination |
@@ -116,12 +118,15 @@ import { createAPI } from 'schemaroute'
 createAPI(app, ProductSchema, 'products', {
 
   // resource-level defaults
-  pagination: 'page',
-  search:     'all-fields',
-  populate:   ['category'],
-  exclude:    ['__v'],
-  transform:  (doc) => ({ id: doc._id, ...doc }),
-  debug:      false,
+  pagination:  'page',
+  search:      'all-fields',
+  populate:    ['category'],
+  exclude:     ['__v'],
+  expose:      ['name', 'price', 'status', 'category'],  // whitelist — only these fields ever leave the API
+  prefix:      '/v1',          // all routes registered under /v1/products
+  maxBodySize: '100kb',        // reject POST/PUT/PATCH bodies over this size
+  transform:   (doc) => ({ id: doc._id, ...doc }),
+  debug:       false,
 
   routes: {
     getAll: {
@@ -140,14 +145,19 @@ createAPI(app, ProductSchema, 'products', {
       beforeCreate: async (data, ctx) => {
         data.slug      = data.name.toLowerCase().replace(/\s+/g, '-')
         data.createdBy = ctx.user?.id
+        // ctx.req is the raw request — access ip, socket, custom middleware props
+        console.log('created from ip:', ctx.req.ip)
         return data
       },
-      afterCreate: async (doc) => {
+      afterCreate: async (doc, ctx) => {
         await notifySubscribers(doc)
       },
     },
     update: {
       validation: true,
+      middleware: [requireAuth],
+    },
+    patch: {
       middleware: [requireAuth],
     },
     delete: {
@@ -227,7 +237,8 @@ const api = createSDK('http://localhost:3000', [productsInstance, categoriesInst
 const { data, meta } = await api.products.getAll({ page: 1, limit: 10, sort: 'price' })
 const product        = await api.products.getOne('abc123')
 const created        = await api.products.create({ name: 'Laptop', price: 999, stock: 5 })
-const updated        = await api.products.update('abc123', { price: 899 })
+const updated        = await api.products.update('abc123', { price: 899 })  // PUT — full replace
+const patched        = await api.products.patch('abc123', { price: 799 })   // PATCH — partial update
 await api.products.delete('abc123')
 ```
 
@@ -279,6 +290,7 @@ If you only need specific functionality:
 
 ```bash
 npm install @schemaroute/core @schemaroute/express
+npm install @schemaroute/core @schemaroute/fastify  # Fastify adapter
 npm install @schemaroute/docs
 npm install @schemaroute/sdk
 ```
@@ -291,6 +303,7 @@ npm install @schemaroute/sdk
 - [Architecture](https://github.com/Bhushan-Wagh98/schemaroute/blob/main/ARCHITECTURE.md)
 - [@schemaroute/core](https://www.npmjs.com/package/@schemaroute/core)
 - [@schemaroute/express](https://www.npmjs.com/package/@schemaroute/express)
+- [@schemaroute/fastify](https://www.npmjs.com/package/@schemaroute/fastify)
 - [@schemaroute/docs](https://www.npmjs.com/package/@schemaroute/docs)
 - [@schemaroute/sdk](https://www.npmjs.com/package/@schemaroute/sdk)
 
